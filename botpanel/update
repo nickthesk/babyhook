@@ -187,7 +187,7 @@ update_navmeshes() {
         echo "$database_root exists but is not a git checkout; skipping navmesh update." >&2
         return
     else
-        git clone --depth 1 https://github.com/MistakesMultiplied/catbot-database "$database_root"
+        git clone --depth 1 https://github.com/GatoPotato658/catbot-database "$database_root"
     fi
 
     echo "Copying navmeshes..."
