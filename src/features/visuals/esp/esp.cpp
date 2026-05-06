@@ -823,6 +823,21 @@ template <typename value_type>
   return player->get_team() != localplayer->get_team() || include_teammates || player->is_friend();
 }
 
+[[nodiscard]] bool should_consider_player_for_esp(Player* player, Player* localplayer)
+{
+  if (player == nullptr || localplayer == nullptr) {
+    return false;
+  }
+  if (player == localplayer || !player->is_alive()) {
+    return false;
+  }
+  if (player->is_dormant()) {
+    return false;
+  }
+
+  return true;
+}
+
 [[nodiscard]] bool get_player_head_emoji_position(Player* player, Vec3* head_position)
 {
   if (player == nullptr || head_position == nullptr) {
@@ -1311,13 +1326,7 @@ void draw_player_head_emoji(ImDrawList* draw_list, const esp_bounds& bounds, Pla
 
 [[nodiscard]] bool should_draw_player(Player* player, Player* localplayer)
 {
-  if (player == nullptr || localplayer == nullptr) {
-    return false;
-  }
-  if (player == localplayer || !player->is_alive()) {
-    return false;
-  }
-  if (player->is_dormant()) {
+  if (!should_consider_player_for_esp(player, localplayer)) {
     return false;
   }
   if (player->get_team() != localplayer->get_team() && !config.esp.player.enemy && !player->is_friend()) {
@@ -1331,6 +1340,37 @@ void draw_player_head_emoji(ImDrawList* draw_list, const esp_bounds& bounds, Pla
   }
 
   return true;
+}
+
+[[nodiscard]] bool should_draw_teammate_head_emoji(Player* player, Player* localplayer)
+{
+  if (!config.esp.player.head_emoji || !config.esp.player.head_emoji_teammates) {
+    return false;
+  }
+  if (!should_consider_player_for_esp(player, localplayer)) {
+    return false;
+  }
+
+  return player->get_team() == localplayer->get_team();
+}
+
+void draw_player_head_emoji_only(ImDrawList* draw_list, Player* player, Player* localplayer)
+{
+  if (draw_list == nullptr || player == nullptr || localplayer == nullptr) {
+    return;
+  }
+
+  auto* entity = player->to_entity();
+  if (entity == nullptr) {
+    return;
+  }
+
+  auto bounds = esp_bounds{};
+  if (!get_stable_entity_screen_bounds(entity, &bounds)) {
+    return;
+  }
+
+  draw_player_head_emoji(draw_list, smooth_esp_bounds(entity, bounds), player, localplayer);
 }
 
 void draw_player_esp(ImDrawList* draw_list, Player* player, Player* localplayer, Entity* player_resource)
@@ -1609,7 +1649,7 @@ void update_player_head_emoji_cache()
   const auto max_entities = entity_list->get_max_entities();
   for (unsigned int index = 1; index <= max_entities && index < g_head_emoji_positions.size(); ++index) {
     auto* player = entity_list->player_from_index(index);
-    if (!should_draw_player(player, localplayer)) {
+    if (!should_draw_player(player, localplayer) && !should_draw_teammate_head_emoji(player, localplayer)) {
       continue;
     }
     if (!should_draw_player_overlay_icon(player, localplayer, config.esp.player.head_emoji_teammates)) {
@@ -1686,6 +1726,8 @@ void draw_players_imgui()
     if (player->get_class_id() == class_id::PLAYER) {
       if (should_draw_player(player, localplayer)) {
         draw_player_esp(draw_list, player, localplayer, player_resource);
+      } else if (should_draw_teammate_head_emoji(player, localplayer)) {
+        draw_player_head_emoji_only(draw_list, player, localplayer);
       }
       continue;
     }

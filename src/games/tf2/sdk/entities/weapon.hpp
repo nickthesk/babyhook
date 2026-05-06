@@ -955,6 +955,7 @@ public:
 
     switch (this->get_def_id()) {
     case 0:
+    case Demoman_t_Bottle:
     case 2:
     case 3:
     case 4:
@@ -985,6 +986,7 @@ public:
     case 221:
     case 225:
     case 264:
+    case Demoman_t_HorselessHeadlessHorsemannsHeadtaker:
     case 307:
     case 310:
     case 317:
@@ -1002,6 +1004,7 @@ public:
     case 452:
     case 466:
     case 474:
+    case Demoman_t_NessiesNineIron:
     case 572:
     case 587:
     case 589:
@@ -1022,6 +1025,7 @@ public:
     case 999:
     case 1013:
     case 1071:
+    case Demoman_t_FestiveEyelander:
     case 1123:
     case 1127:
     case 30758:
