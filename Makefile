@@ -68,6 +68,27 @@ install: $(BIN) catbot_ipc
 	install -m 0755 "$(BIN)" "$(INSTALL_BIN_DIR)/$(BIN_NAME)"
 	if [ -f "$(OUTPUT_DIR)/libcathooktextmode.so" ]; then install -m 0755 "$(OUTPUT_DIR)/libcathooktextmode.so" "$(INSTALL_BIN_DIR)/libcathook-textmode.so"; fi
 	if [ -f "$(OUTPUT_DIR)/libcathook.so" ]; then install -m 0755 "$(OUTPUT_DIR)/libcathook.so" "$(INSTALL_BIN_DIR)/libcathook.so"; fi
+	@for binary_path in "$(OUTPUT_DIR)/libcathook.so" "$(OUTPUT_DIR)/libcathooktextmode.so"; do \
+		[ -f "$$binary_path" ] || continue; \
+		if ! command -v readelf >/dev/null 2>&1; then \
+			echo "Warning: readelf is missing; cannot bundle libGLEW fallback for $$binary_path." >&2; \
+			continue; \
+		fi; \
+		required_library="$$(readelf -d "$$binary_path" 2>/dev/null | awk -F'[][]' '/NEEDED/ && $$2 ~ /^libGLEW\.so\./ { print $$2; exit }')"; \
+		[ -n "$$required_library" ] || continue; \
+		[ ! -f "$(INSTALL_BIN_DIR)/$$required_library" ] || continue; \
+		source_path="$$(ldconfig -p 2>/dev/null | awk -v library_name="$$required_library" '$$1 == library_name { print $$NF; exit }')"; \
+		for candidate in "/usr/lib/$$required_library" "/usr/lib64/$$required_library" "/usr/lib/x86_64-linux-gnu/$$required_library" "/usr/local/lib/$$required_library" "/run/host/usr/lib/$$required_library" "/run/host/usr/lib64/$$required_library"; do \
+			[ -n "$$source_path" ] && [ -f "$$source_path" ] && break; \
+			if [ -f "$$candidate" ]; then source_path="$$candidate"; fi; \
+		done; \
+		if [ -z "$$source_path" ] || [ ! -f "$$source_path" ]; then \
+			echo "Warning: $$binary_path needs $$required_library, but it was not found on this system." >&2; \
+			continue; \
+		fi; \
+		install -m 0755 "$$source_path" "$(INSTALL_BIN_DIR)/$$required_library"; \
+		echo "Installed bundled fallback $$required_library to $(INSTALL_BIN_DIR)"; \
+	done
 	$(MAKE) -C "$(CATBOT_IPC_DIR)" REPO_ROOT="$(abspath .)" INSTALL_DIR="$(INSTALL_IPC_DIR)" install
 
 #-------------------------------------------------------------------------------

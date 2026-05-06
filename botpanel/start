@@ -244,6 +244,81 @@ ensure_binaries() {
     make -C "$repo_root" catbot_ipc
 }
 
+find_shared_library() {
+    local library_name="$1"
+    local candidate=""
+
+    if command -v ldconfig >/dev/null 2>&1; then
+        candidate="$(ldconfig -p 2>/dev/null | awk -v library_name="$library_name" '$1 == library_name { print $NF; exit }')"
+        if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    fi
+
+    for candidate in \
+        "/usr/lib/$library_name" \
+        "/usr/lib64/$library_name" \
+        "/usr/lib/x86_64-linux-gnu/$library_name" \
+        "/usr/local/lib/$library_name" \
+        "/run/host/usr/lib/$library_name" \
+        "/run/host/usr/lib64/$library_name"; do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+install_bundled_glew_libraries() {
+    local source_root="$1"
+    local dependency_path=""
+
+    for dependency_path in "$source_root/bin"/libGLEW.so.*; do
+        [ -f "$dependency_path" ] || continue
+        run_as_root install -m 0755 "$dependency_path" "$install_root/bin/$(basename -- "$dependency_path")"
+    done
+}
+
+install_glew_dependency_for_binary() {
+    local binary_path="$1"
+    local required_library=""
+    local source_path=""
+
+    if [ ! -f "$binary_path" ]; then
+        return
+    fi
+
+    if ! command -v readelf >/dev/null 2>&1; then
+        echo "Warning: readelf is missing; cannot bundle libGLEW fallback for $binary_path." >&2
+        return
+    fi
+
+    required_library="$(readelf -d "$binary_path" 2>/dev/null | awk -F'[][]' '/NEEDED/ && $2 ~ /^libGLEW\.so\./ { print $2; exit }')"
+    if [ -z "$required_library" ] || [ -f "$install_root/bin/$required_library" ]; then
+        return
+    fi
+
+    if ! source_path="$(find_shared_library "$required_library")"; then
+        echo "Warning: $binary_path needs $required_library, but it was not found on this system." >&2
+        echo "Provide $required_library in $install_root/bin or rebuild Cat on this machine." >&2
+        return
+    fi
+
+    run_as_root install -m 0755 "$source_path" "$install_root/bin/$required_library"
+}
+
+install_runtime_dependencies() {
+    local source_root="$1"
+
+    install_bundled_glew_libraries "$source_root"
+    install_glew_dependency_for_binary "$source_root/bin/libcathook.so"
+    install_glew_dependency_for_binary "$source_root/bin/libcathooktextmode.so"
+    install_glew_dependency_for_binary "$source_root/bin/libcathook-textmode.so"
+}
+
 install_runtime() {
     local source_root
     source_root="$(runtime_source_root)"
@@ -259,6 +334,7 @@ install_runtime() {
         run_as_root install -m 0755 "$source_root/bin/libcathook-textmode.so" "$install_root/bin/libcathook-textmode.so"
     fi
 
+    install_runtime_dependencies "$source_root"
     run_as_root install -m 0755 "$ipc_server_root/bin/server" "$install_root/ipc/bin/server"
     run_as_root install -m 0755 "$ipc_server_root/bin/console" "$install_root/ipc/bin/console"
     run_as_root install -m 0755 "$ipc_server_root/bin/exec" "$install_root/ipc/bin/exec"

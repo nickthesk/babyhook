@@ -4,6 +4,7 @@ PROCID=""
 GAME_BINARY_PATH=""
 CRASH_WATCHER_PID=""
 TAIL_PID=""
+TMP_RUNTIME_DIR=""
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CATHOOK_ROOT=${CATHOOK_ROOT:-/opt/cathook}
 CATHOOK_BIN_DIR=$CATHOOK_ROOT/bin
@@ -472,10 +473,98 @@ stop_log_tail() {
     fi
 }
 
+cleanup_temp_runtime() {
+    if [ -n "$TMP_RUNTIME_DIR" ] && [ -d "$TMP_RUNTIME_DIR" ]; then
+        rm -rf "$TMP_RUNTIME_DIR"
+    fi
+    TMP_RUNTIME_DIR=""
+}
+
+copy_bundled_runtime_dependencies() {
+    local source_dir="$1"
+    local target_dir="$2"
+    local dependency_path=""
+    local target_path=""
+
+    if [ ! -d "$source_dir" ]; then
+        return
+    fi
+
+    for dependency_path in "$source_dir"/libGLEW.so.*; do
+        [ -f "$dependency_path" ] || continue
+        target_path="$target_dir/$(basename -- "$dependency_path")"
+        if [ "$dependency_path" = "$target_path" ]; then
+            continue
+        fi
+
+        cp "$dependency_path" "$target_path"
+        chmod 0755 "$target_path"
+    done
+}
+
+find_shared_library() {
+    local library_name="$1"
+    local candidate=""
+
+    if command -v ldconfig >/dev/null 2>&1; then
+        candidate="$(ldconfig -p 2>/dev/null | awk -v library_name="$library_name" '$1 == library_name { print $NF; exit }')"
+        if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    fi
+
+    for candidate in \
+        "/usr/lib/$library_name" \
+        "/usr/lib64/$library_name" \
+        "/usr/lib/x86_64-linux-gnu/$library_name" \
+        "/usr/local/lib/$library_name" \
+        "/run/host/usr/lib/$library_name" \
+        "/run/host/usr/lib64/$library_name"; do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+install_glew_fallback_for_binary() {
+    local binary_path="$1"
+    local required_library=""
+    local source_path=""
+
+    if [ ! -f "$binary_path" ]; then
+        return
+    fi
+
+    if ! command -v readelf >/dev/null 2>&1; then
+        echo "Warning: readelf is missing; cannot prepare libGLEW fallback for $binary_path." >&2
+        return
+    fi
+
+    required_library="$(readelf -d "$binary_path" 2>/dev/null | awk -F'[][]' '/NEEDED/ && $2 ~ /^libGLEW\.so\./ { print $2; exit }')"
+    if [ -z "$required_library" ] || [ -f "$CATHOOK_BIN_DIR/$required_library" ]; then
+        return
+    fi
+
+    if ! source_path="$(find_shared_library "$required_library")"; then
+        echo "Warning: $binary_path needs $required_library, but it was not found on this system." >&2
+        echo "Run ./install-deps and sudo ./build.sh, or put $required_library in $CATHOOK_BIN_DIR." >&2
+        return
+    fi
+
+    install -d -m 0755 "$CATHOOK_BIN_DIR"
+    install -m 0755 "$source_path" "$CATHOOK_BIN_DIR/$required_library"
+    echo "Installed missing fallback $required_library to $CATHOOK_BIN_DIR"
+}
+
 unload() {
     echo -e "\nUnloading library with handle $LIB_HANDLE"
     stop_gdb_crash_watcher
     stop_log_tail
+    cleanup_temp_runtime
 
     sudo gdb -n --batch -ex "attach $PROCID" \
          -ex "call cathook_detach()" \
@@ -515,6 +604,7 @@ unload() {
 }
 
 trap unload SIGINT
+trap cleanup_temp_runtime EXIT
 
 if ! maybe_auto_update; then
     exit 1
@@ -528,14 +618,21 @@ if [ ! -f "$LIB_PATH" ]; then
     exit 1
 fi
 
+install_glew_fallback_for_binary "$LIB_PATH"
+
 echo "Using $LIB_PATH"
 if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$LIB_PATH"
 fi
 
-TMP_LIB=$(mktemp /tmp/.glXXXXXX)
+TMP_RUNTIME_DIR=$(mktemp -d /tmp/.glXXXXXX)
+TMP_LIB="$TMP_RUNTIME_DIR/$CATHOOK_BINARY"
 cp "$LIB_PATH" "$TMP_LIB"
 chmod 0755 "$TMP_LIB"
+copy_bundled_runtime_dependencies "$(dirname -- "$LIB_PATH")" "$TMP_RUNTIME_DIR"
+if [ "$(dirname -- "$LIB_PATH")" != "$CATHOOK_BIN_DIR" ]; then
+    copy_bundled_runtime_dependencies "$CATHOOK_BIN_DIR" "$TMP_RUNTIME_DIR"
+fi
 
 LOAD_OUTPUT=$(sudo gdb -n --batch -ex "attach $PROCID" \
                    -ex "call ((int (*) (const char *, const char *, int)) setenv)(\"CATHOOK_ATTACH_DELAY_SECONDS\", \"$CATHOOK_ATTACH_DELAY_SECONDS\", 1)" \
@@ -544,7 +641,7 @@ LOAD_OUTPUT=$(sudo gdb -n --batch -ex "attach $PROCID" \
                    -ex "detach" 2>&1)
 LIB_HANDLE=$(printf "%s\n" "$LOAD_OUTPUT" | grep -oP '\$[0-9]+ = \(void \*\) \K0x[0-9a-f]+')
 
-rm -f "$TMP_LIB"
+cleanup_temp_runtime
 
 if [ -z "$LIB_HANDLE" ]; then
     echo "Failed to load library"

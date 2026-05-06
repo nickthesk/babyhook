@@ -78,6 +78,7 @@ sudo TEXTMODE=1 ./inject.sh
 ```
 
 `inject.sh` refreshes `/opt/cathook/assets` and clears old cathook/exception logs before loading the library.
+It also copies any bundled `/opt/cathook/bin/libGLEW.so.*` next to the temporary library used for `dlopen`, because the injected copy is loaded from `/tmp`.
 
 ## Container Build
 

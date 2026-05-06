@@ -168,6 +168,81 @@ copy_assets() {
     echo "Installed assets to $install_assets_dir"
 }
 
+find_shared_library() {
+    local library_name="$1"
+    local candidate=""
+
+    if command -v ldconfig >/dev/null 2>&1; then
+        candidate="$(ldconfig -p 2>/dev/null | awk -v library_name="$library_name" '$1 == library_name { print $NF; exit }')"
+        if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    fi
+
+    for candidate in \
+        "/usr/lib/$library_name" \
+        "/usr/lib64/$library_name" \
+        "/usr/lib/x86_64-linux-gnu/$library_name" \
+        "/usr/local/lib/$library_name" \
+        "/run/host/usr/lib/$library_name" \
+        "/run/host/usr/lib64/$library_name"; do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+install_glew_dependency_for_binary() {
+    local binary_path="$1"
+    local install_bin_dir="$2"
+    local required_library=""
+    local source_path=""
+
+    if [ ! -f "$binary_path" ]; then
+        return
+    fi
+
+    if ! command -v readelf >/dev/null 2>&1; then
+        echo "Warning: readelf is missing; cannot bundle libGLEW fallback for $binary_path." >&2
+        return
+    fi
+
+    required_library="$(readelf -d "$binary_path" 2>/dev/null | awk -F'[][]' '/NEEDED/ && $2 ~ /^libGLEW\.so\./ { print $2; exit }')"
+    if [ -z "$required_library" ]; then
+        return
+    fi
+
+    if [ -f "$install_bin_dir/$required_library" ]; then
+        return
+    fi
+
+    if ! source_path="$(find_shared_library "$required_library")"; then
+        echo "Warning: $binary_path needs $required_library, but it was not found on this system." >&2
+        echo "Install glew and rebuild on this machine, or provide $required_library in $install_bin_dir." >&2
+        return
+    fi
+
+    run_as_root install -m 0755 "$source_path" "$install_bin_dir/$required_library"
+    echo "Installed bundled fallback $required_library to $install_bin_dir"
+}
+
+install_runtime_dependencies() {
+    local mode="$1"
+    local install_bin_dir="$2"
+
+    if [ "$mode" = "default" ] || [ "$mode" = "both" ]; then
+        install_glew_dependency_for_binary "$project_root/bin/libcathook.so" "$install_bin_dir"
+    fi
+
+    if [ "$mode" = "textmode" ] || [ "$mode" = "both" ]; then
+        install_glew_dependency_for_binary "$project_root/bin/libcathooktextmode.so" "$install_bin_dir"
+    fi
+}
+
 normalize_mode() {
     case "$1" in
         default | non-textmode | non_textmode | normal | gui | 1)
@@ -261,6 +336,7 @@ install_outputs() {
         run_as_root install -m 0755 "$project_root/bin/libcathooktextmode.so" "$install_bin_dir/libcathook-textmode.so"
     fi
 
+    install_runtime_dependencies "$mode" "$install_bin_dir"
     run_as_root make -C "$project_root/botpanel/catbot-ipc-server-main" REPO_ROOT="$project_root" INSTALL_DIR="$install_ipc_dir" install
     copy_assets "$install_assets_dir"
     fix_install_permissions

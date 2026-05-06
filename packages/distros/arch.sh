@@ -50,7 +50,7 @@ check_bundled_glew_soname() {
 
         echo "Warning: $binary_path needs $required_library, but pacman did not install that SONAME." >&2
         echo "On Manjaro this usually means the checked-in/prebuilt binary was built against a newer Arch GLEW." >&2
-        echo "Run sudo ./build.sh after ./install-deps, or update Manjaro with sudo pacman -Syu until glew provides $required_library." >&2
+        echo "Run sudo ./build.sh after ./install-deps so the matching libGLEW fallback is installed to /opt/cathook/bin." >&2
     done
 }
 
