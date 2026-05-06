@@ -292,7 +292,6 @@ std::atomic_bool process_exiting = false;
 std::atomic_bool attach_worker_started = false;
 std::atomic_bool attach_worker_complete = false;
 std::atomic_bool attach_worker_stop = false;
-std::thread attach_worker;
 
 constexpr auto attach_wait_step = std::chrono::milliseconds(100);
 constexpr long attach_ready_delay_default_seconds = 0;
@@ -404,6 +403,12 @@ bool wait_for_game_modules()
 
 void stop_attach_worker();
 
+std::thread& attach_worker_thread()
+{
+  static auto* thread = new std::thread{};
+  return *thread;
+}
+
 std::chrono::seconds attach_ready_delay()
 {
   const char* value = std::getenv("CATHOOK_ATTACH_DELAY_SECONDS");
@@ -486,7 +491,7 @@ bool start_attach_worker()
 
   attach_worker_stop.store(false, std::memory_order_release);
   attach_worker_complete.store(false, std::memory_order_release);
-  attach_worker = std::thread{ attach_worker_main };
+  attach_worker_thread() = std::thread{ attach_worker_main };
   return true;
 }
 
@@ -494,8 +499,13 @@ void stop_attach_worker()
 {
   attach_worker_stop.store(true, std::memory_order_release);
 
-  if (attach_worker.joinable() && std::this_thread::get_id() != attach_worker.get_id()) {
-    attach_worker.join();
+  auto& thread = attach_worker_thread();
+  if (thread.joinable()) {
+    if (std::this_thread::get_id() == thread.get_id()) {
+      thread.detach();
+    } else {
+      thread.join();
+    }
   }
 
   attach_worker_started.store(false, std::memory_order_release);
@@ -1463,6 +1473,7 @@ extern "C" bool cathook_is_detached()
 
 __attribute__((destructor))
 void __exit() {
-  cathook::core::stop_attach_worker();
   cathook::core::process_exiting.store(true, std::memory_order_release);
+  cathook::core::stop_attach_worker();
+  cathook::core::exception_handler::uninstall();
 }
