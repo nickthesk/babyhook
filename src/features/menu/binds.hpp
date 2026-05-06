@@ -501,14 +501,27 @@ inline void request_popup(const std::string& target_key, popup_target_type targe
   popup_open_requested() = true;
 }
 
-inline void remove_indicator_bind(const std::string& target_key, popup_target_type target_type) {
+inline void close_popup_if_target(const std::string& target_key) {
+  if (popup_target_key() != target_key) {
+    return;
+  }
+
+  popup_target_key().clear();
+  popup_label_target_key().clear();
+  ImGui::CloseCurrentPopup();
+}
+
+inline void remove_indicator_bind(std::string target_key, popup_target_type target_type) {
   if (target_type == popup_target_type::value_bind) {
-    std::erase_if(entries(), [&](const bind_entry& current) { return current.target_key == target_key; });
-    if (popup_target_key() == target_key) {
-      popup_target_key().clear();
-      popup_label_target_key().clear();
-      ImGui::CloseCurrentPopup();
+    auto& value_entries = entries();
+    for (auto it = value_entries.begin(); it != value_entries.end();) {
+      if (it->target_key == target_key) {
+        it = value_entries.erase(it);
+      } else {
+        ++it;
+      }
     }
+    close_popup_if_target(target_key);
     return;
   }
 
@@ -524,11 +537,7 @@ inline void remove_indicator_bind(const std::string& target_key, popup_target_ty
   entry->target->last_press_time = 0.0f;
   entry->label = entry->default_label;
 
-  if (popup_target_key() == target_key) {
-    popup_target_key().clear();
-    popup_label_target_key().clear();
-    ImGui::CloseCurrentPopup();
-  }
+  close_popup_if_target(target_key);
 }
 
 template <typename value_t>
@@ -702,6 +711,8 @@ inline void draw_popup() {
   if (entry == nullptr && button_entry == nullptr) {
     ImGui::TextUnformatted("Bind unavailable");
     ImGui::EndPopup();
+    ImGui::PopStyleColor(10);
+    ImGui::PopStyleVar(4);
     return;
   }
 
