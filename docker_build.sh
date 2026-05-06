@@ -14,6 +14,11 @@ WORKSPACE="/workspace"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKERFILE_PATH="${REPO_ROOT}/docker/builder.Dockerfile"
 
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/cathook_mode.sh"
+
+selected_mode="$(cathook_select_mode 1)"
+
 if [ -z "${CATHOOK_DOCKER_IMAGE:-}" ]; then
     if [ "${CATHOOK_DOCKER_REBUILD:-0}" = "1" ] || ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
         docker build -t "${IMAGE}" -f "${DOCKERFILE_PATH}" "${REPO_ROOT}"
@@ -21,6 +26,7 @@ if [ -z "${CATHOOK_DOCKER_IMAGE:-}" ]; then
 fi
 
 docker run --rm \
+    -e CAT_BUILD_MODE="${selected_mode}" \
     -e CATHOOK_TEXTMODE="${CATHOOK_TEXTMODE:-${TEXTMODE:-0}}" \
     -v "${REPO_ROOT}:${WORKSPACE}" \
     -w "${WORKSPACE}" \

@@ -3,12 +3,20 @@
 # This script is intended to attach GDB and inject, and not much else.
 # That means no automatic log display. Open a seperate shell and `tail -f /tmp/tf2.log` for active logs.
 
-LIB_NAME=libcathook.so
-if [ "${CATHOOK_TEXTMODE:-0}" = "1" ] || [ "${TEXTMODE:-0}" = "1" ]; then
-    LIB_NAME=libcathooktextmode.so
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/cathook_mode.sh"
+
+LIB_NAME="${CATHOOK_BINARY:-}"
+if selected_mode="$(cathook_mode_from_env 0)"; then
+    LIB_NAME="$(cathook_binary_for_mode "$selected_mode")"
+elif [ -z "$LIB_NAME" ]; then
+    selected_mode="$(cathook_select_mode 0)"
+    LIB_NAME="$(cathook_binary_for_mode "$selected_mode")"
 fi
 
-LIB_PATH=$(pwd)/bin/$LIB_NAME
+LIB_PATH="$SCRIPT_DIR/bin/$LIB_NAME"
 PROCID=$(pgrep tf_linux64 | head -n 1)
 
 if [[ "$(execstack -q "$LIB_PATH")" = "X $LIB_PATH" ]]; then

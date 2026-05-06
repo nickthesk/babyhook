@@ -4,21 +4,27 @@ set -euo pipefail
 project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 asset_source_dir="$project_root/assets"
 install_root="${CATHOOK_ROOT:-/opt/cathook}"
-build_mode="${CAT_BUILD_MODE:-}"
+build_mode=""
+
+# shellcheck source=/dev/null
+source "$project_root/cathook_mode.sh"
 
 usage() {
     cat <<'EOF'
 Usage: sudo ./build.sh [default|textmode|both|--default|--textmode|--both|--no-install]
 
-Without a mode argument, builds the default NORMAL/NON-TEXTMODE
-libcathook.so with SDL hooking enabled.
+Without a mode argument or saved preference, asks which mode to build.
 
 Install mode writes to /opt/cathook by default and MUST RUN AS SUDO.
 Use --no-install for a local user build without sudo.
 Use --dev or --no-update to skip repository update checks and never reset local changes.
 
 Environment:
+  CATHOOK_MODE=default|textmode|both
   CAT_BUILD_MODE=default|textmode|both
+  CATHOOK_TEXTMODE=1
+  TEXTMODE=1
+  CATHOOK_MODE_FILE=~/.config/cathook/mode
   CATHOOK_ROOT=/opt/cathook
   CATHOOK_DEV_MODE=1
 EOF
@@ -244,20 +250,7 @@ install_runtime_dependencies() {
 }
 
 normalize_mode() {
-    case "$1" in
-        default | non-textmode | non_textmode | normal | gui | 1)
-            printf '%s\n' "default"
-            ;;
-        textmode | text | 2)
-            printf '%s\n' "textmode"
-            ;;
-        both | all | 3)
-            printf '%s\n' "both"
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    cathook_normalize_mode "$1" 1
 }
 
 choose_build_mode() {
@@ -266,7 +259,7 @@ choose_build_mode() {
         return
     fi
 
-    printf '%s\n' "default"
+    cathook_select_mode 1
 }
 
 # ensure_funchook() {

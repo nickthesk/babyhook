@@ -6,12 +6,16 @@ CRASH_WATCHER_PID=""
 TAIL_PID=""
 TMP_RUNTIME_DIR=""
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/cathook_mode.sh"
+
 CATHOOK_ROOT=${CATHOOK_ROOT:-/opt/cathook}
 CATHOOK_BIN_DIR=$CATHOOK_ROOT/bin
 CATHOOK_LOG_DIR=$CATHOOK_ROOT/logs
 CATHOOK_ASSET_DIR=$CATHOOK_ROOT/assets
 CATHOOK_SOURCE_ASSET_DIR="$SCRIPT_DIR/assets"
-CATHOOK_BINARY=${CATHOOK_BINARY:-libcathook.so}
+CATHOOK_BINARY=${CATHOOK_BINARY:-}
 CATHOOK_CONFIG_DIR=${CATHOOK_CONFIG_DIR:-$CATHOOK_ROOT/config}
 CATHOOK_AUTO_UPDATE_FILE=${CATHOOK_AUTO_UPDATE_FILE:-$CATHOOK_CONFIG_DIR/auto_update}
 CATHOOK_ATTACH_DELAY_SECONDS=${CATHOOK_ATTACH_DELAY_SECONDS:-0}
@@ -28,6 +32,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         -h | --help)
             echo "Usage: sudo ./inject.sh [--dev|--no-update]"
+            echo "Mode: CATHOOK_MODE=default|textmode, CATHOOK_TEXTMODE=1, TEXTMODE=1, or saved first-run choice."
             exit 0
             ;;
         *)
@@ -43,8 +48,11 @@ if [[ ! "$CATHOOK_ATTACH_DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
     CATHOOK_ATTACH_DELAY_SECONDS=0
 fi
 
-if [ "${CATHOOK_TEXTMODE:-0}" = "1" ] || [ "${TEXTMODE:-0}" = "1" ]; then
-    CATHOOK_BINARY=libcathooktextmode.so
+if selected_mode="$(cathook_mode_from_env 0)"; then
+    CATHOOK_BINARY="$(cathook_binary_for_mode "$selected_mode")"
+elif [ -z "$CATHOOK_BINARY" ]; then
+    selected_mode="$(cathook_select_mode 0)"
+    CATHOOK_BINARY="$(cathook_binary_for_mode "$selected_mode")"
 fi
 
 LIB_PATH="$CATHOOK_BIN_DIR/$CATHOOK_BINARY"

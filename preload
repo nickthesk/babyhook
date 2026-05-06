@@ -7,9 +7,13 @@ if [ "$EUID" -eq 0 ]; then
 fi
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/cathook_mode.sh"
+
 CATHOOK_ROOT=${CATHOOK_ROOT:-/opt/cathook}
 CATHOOK_BIN_DIR=$CATHOOK_ROOT/bin
-CATHOOK_BINARY=${CATHOOK_BINARY:-libcathook.so}
+CATHOOK_BINARY=${CATHOOK_BINARY:-}
 TMP_RUNTIME_DIR=""
 
 cleanup_temp_runtime() {
@@ -96,8 +100,11 @@ copy_system_glew_dependency() {
 
 trap cleanup_temp_runtime EXIT
 
-if [ "${CATHOOK_TEXTMODE:-0}" = "1" ] || [ "${TEXTMODE:-0}" = "1" ]; then
-    CATHOOK_BINARY=libcathooktextmode.so
+if selected_mode="$(cathook_mode_from_env 0)"; then
+    CATHOOK_BINARY="$(cathook_binary_for_mode "$selected_mode")"
+elif [ -z "$CATHOOK_BINARY" ]; then
+    selected_mode="$(cathook_select_mode 0)"
+    CATHOOK_BINARY="$(cathook_binary_for_mode "$selected_mode")"
 fi
 
 LIB_PATH="$CATHOOK_BIN_DIR/$CATHOOK_BINARY"

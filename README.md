@@ -38,11 +38,13 @@ Install dependencies, build Cat, install runtime files, and prepare the bundled 
 ./setup.sh
 ```
 
-Build the normal NON-TEXTMODE library with SDL hooking:
+Build Cat and choose the mode from the first-run terminal menu:
 
 ```sh
 sudo ./build.sh
 ```
+
+The saved mode is reused by `build.sh`, `inject.sh`, `preload`, `debug.sh`, and the Docker build wrappers. Remove `~/.config/cathook/mode` or set `CATHOOK_MODE_FILE` to choose a different preference file.
 
 Build an explicit mode:
 
@@ -71,9 +73,10 @@ Attach to a running TF2 process:
 sudo ./inject.sh
 ```
 
-Use the textmode binary when attaching:
+Use the textmode binary when attaching, overriding the saved mode:
 
 ```sh
+sudo CATHOOK_MODE=textmode ./inject.sh
 sudo TEXTMODE=1 ./inject.sh
 ```
 
@@ -96,7 +99,7 @@ On PowerShell hosts:
 
 ## Preload
 
-Use `./preload` before launching TF2 when the library needs to be loaded before game modules are ready. Set `TEXTMODE=1` or `CATHOOK_TEXTMODE=1` to use `libcathooktextmode.so`.
+Use `./preload` before launching TF2 when the library needs to be loaded before game modules are ready. It uses the saved mode unless `CATHOOK_MODE`, `TEXTMODE`, `CATHOOK_TEXTMODE`, or `CATHOOK_BINARY` overrides it.
 
 ## Repository Layout
 
