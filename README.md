@@ -113,4 +113,4 @@ This project is based on cathook and the Linux TF2 internal work it builds on, i
 AI - that's how i learned how to code<br>
 RH - motivation and some methods<br>
 nullworks - original cathook creators<br>
-DrCoomer - cheat i based my "cathook" on<br>
+DrCoomer - cheat i based the "cathook" on<br>
