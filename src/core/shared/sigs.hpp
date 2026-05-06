@@ -115,6 +115,8 @@ constexpr const char* report_player_account =
   "55 48 89 F8 48 89 E5 48 C1 E8 ? 41 57 41 56 41 55 41 54 53 48 83 EC ?";
 constexpr const char* allow_secure_servers_flag_ref =
   "48 8D 05 ? ? ? ? 4C 89 E7 C6 00 00 4C 8B 65 ? C9 E9 ? ? ? ?";
+constexpr const char* launcher_source_lock =
+  "55 48 89 E5 41 55 41 54 4C 8D AD ? ? ? ? 48 81 EC ? ? ? ? E8 ? ? ? ?";
 constexpr const char* client_file_system =
   "31 F6 4C 89 EF FF 13 48 83 3D ? ? ? ? 00 48 89 05 ? ? ? ? 0F 85";
 constexpr const char* base_animating_play_sequence =

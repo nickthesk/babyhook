@@ -73,6 +73,7 @@ V  o o  V  file: src/cathook.cpp
 #include "core/hooks/sdl.cpp"
 #include "core/hooks/vulkan.cpp"
 
+#include "core/overwrite_dlopen.cpp"
 #include "core/hooks/hooks.cpp"
 #include "core/ipc/ipc_client.cpp"
 #include "core/player_manager.cpp"
