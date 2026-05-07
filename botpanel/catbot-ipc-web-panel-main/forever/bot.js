@@ -147,19 +147,6 @@ function path_is_inside(child_path, parent_path) {
     return Boolean(relative_path) && !relative_path.startsWith('..') && !path.isAbsolute(relative_path);
 }
 
-function path_is_at_or_inside(child_path, parent_path) {
-    const relative_path = path.relative(parent_path, child_path);
-    return relative_path === '' || (Boolean(relative_path) && !relative_path.startsWith('..') && !path.isAbsolute(relative_path));
-}
-
-function real_path_or_null(target_path) {
-    try {
-        return fs.realpathSync(target_path);
-    } catch (error) {
-        return null;
-    }
-}
-
 function unique_paths(paths) {
     return [...new Set(paths.filter(Boolean))];
 }
@@ -728,7 +715,6 @@ class Bot extends EventEmitter {
             fs.chownSync(self.home, USER.uid, USER.uid);
         }
         const xauthority_path = self.ensureVisibleXauthority();
-        self.ensureSteamRootLinks();
 
         var steambin = this.nativeSteam ? "steam-native" : "steam";
 
@@ -825,7 +811,7 @@ class Bot extends EventEmitter {
             tail_steam_err_logs = [];
         });
         self.log(`Launched ${steambin} (${self.procFirejailSteam.pid})`);
-        self.log(`Steam log capture: ./logs/${self.name}.steam.log plus ${self.steamRootPaths().map((root_path) => path.join(root_path, 'logs')).join(', ')}`);
+        self.log(`Steam log capture: ./logs/${self.name}.steam.log plus ${self.steamInstallCandidates().map((steam_path) => path.join(steam_path, 'logs')).join(', ')}`);
         self.emit('start-steam', self.procFirejailSteam.pid);
     }
 
