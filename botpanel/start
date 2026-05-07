@@ -572,6 +572,10 @@ start_ipc_server() {
         fi
     fi
 
+    pkill -f "$install_root/ipc/bin/server -s" 2>/dev/null || true
+    sleep 1
+    pkill -KILL -f "$install_root/ipc/bin/server -s" 2>/dev/null || true
+
     rm -f /tmp/cat-ipc-server.pid /tmp/cat-ipc-server.log 2>/dev/null || true
     rm -f /dev/shm/cathook_followbot_server 2>/dev/null || true
 
