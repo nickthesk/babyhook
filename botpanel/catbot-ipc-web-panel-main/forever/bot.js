@@ -22,7 +22,7 @@ const STEAM_WINDOW_OPTIONS = VISIBLE_WINDOWS
 const GAME_WINDOW_OPTIONS = VISIBLE_WINDOWS ? '-sw -w 1280 -h 720' : '-silent -sw -w 1 -h 480';
 const GAME_RENDER_OPTIONS = '-gl';
 const GAME_MODE_OPTIONS = TEXTMODE_GAME
-    ? '-noshaderapi -nomouse -textmode -wavonly'
+    ? '-noshaderapi -nomouse -wavonly'
     : '';
 const CATHOOK_ATTACH_DELAY_SECONDS = Number.parseInt(process.env.CATHOOK_ATTACH_DELAY_SECONDS || '5', 10);
 
