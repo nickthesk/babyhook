@@ -27,7 +27,7 @@
             <input type="button" id="bot-refresh" value="Refresh bot list">
             <input id="bot-quota" value="3">
             <input id="bot-quota-apply" type="button" value="Apply quota">
-            <span class="vgui-outset" style="display: inline-block; margin-left: 4px; line-height: 19px; padding: 0 3px;">Max concurrent: <input id="bot-concurrent" value="3" style="width: 30px; margin: 0 2px;"></span>
+            <span class="vgui-outset" style="display: inline-block; margin-left: 4px; line-height: 19px; padding: 0 3px;">Max concurrent: <input id="bot-concurrent" type="number" min="1" step="1" value="3" style="width: 44px; margin: 0 2px;"></span>
             <input id="bot-concurrent-apply" type="button" value="Apply">
         </div>
         <br>
@@ -39,6 +39,7 @@
                     <td>Bot Name</td>
                     <td>State</td>
                     <td>Steam</td>
+                    <td>Ban Tracker</td>
                     <td>Uptime</td>
                     <td>PID</td>
                     <td>ID</td>
@@ -65,6 +66,7 @@
         <div>
             <div class="nopad vmiddle">
                 <input type="checkbox" id="autorestart-bots" checked>Auto-restart nonresponsive bots</input>
+                <input type="checkbox" id="ban-tracker-enabled">Account ban tracker</input>
             </div>
         </div>
         <div id="footer">

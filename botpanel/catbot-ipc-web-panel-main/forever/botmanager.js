@@ -1,6 +1,7 @@
 const fs = require('fs');
 const { clone } = require('underscore');
 const Bot = require('./bot');
+const BanTracker = require('./ban_tracker');
 
 class BotManager {
     constructor(cc) {
@@ -13,6 +14,7 @@ class BotManager {
         this.quota = 0;
         this.wanted_quota = 0;
         this.lastQuery = {};
+        this.ban_tracker = new BanTracker(this);
         this.updateTimeout = setTimeout(this.update.bind(this), 1000);
         this.stopping = false;
     }
@@ -34,6 +36,7 @@ class BotManager {
             else
                 b.update();
         }
+        this.ban_tracker.update();
 
         if (!this.stopping)
             self.cc.command('query', {}, function (data) {

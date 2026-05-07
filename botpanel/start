@@ -672,6 +672,7 @@ start_panel() {
             CAT_VISIBLE_WINDOWS="$visible_windows" \
             CAT_STEAMWEBHELPER_CLEANUP="${CAT_STEAMWEBHELPER_CLEANUP:-1}" \
             CAT_STEAMWEBHELPER_CLEANUP_SECONDS="${CAT_STEAMWEBHELPER_CLEANUP_SECONDS:-10}" \
+            CAT_STEAM_WEB_API_KEY="${CAT_STEAM_WEB_API_KEY:-}" \
             STEAM_LD_PRELOAD="${STEAM_LD_PRELOAD:-}" \
             CATHOOK_ROOT="$install_root" \
             bash ./run.sh &
@@ -687,6 +688,7 @@ start_panel() {
         CAT_VISIBLE_WINDOWS="$visible_windows" \
         CAT_STEAMWEBHELPER_CLEANUP="${CAT_STEAMWEBHELPER_CLEANUP:-1}" \
         CAT_STEAMWEBHELPER_CLEANUP_SECONDS="${CAT_STEAMWEBHELPER_CLEANUP_SECONDS:-10}" \
+        CAT_STEAM_WEB_API_KEY="${CAT_STEAM_WEB_API_KEY:-}" \
         STEAM_LD_PRELOAD="${STEAM_LD_PRELOAD:-}" \
         CATHOOK_ROOT="$install_root" \
         bash ./run.sh &

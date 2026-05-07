@@ -1,6 +1,7 @@
 const $ = require('jquery');
 const format = require('format-duration');
 const request = require('browser-request');
+const steam_id = require('./steam_id');
 
 const STATE = [ 
 	'INITIALIZING',
@@ -90,6 +91,81 @@ function restartAllButtonCallback() {
 	});
 }
 
+function set_config(option, value, callback) {
+	request.post({
+		url: `api/config/${option}/${value ? 'true' : 'false'}`
+	}, function(e, r, b) {
+		if (e) {
+			console.log(e, b);
+			status.error('Error applying config');
+			if (callback)
+				callback(e);
+			return;
+		}
+		if (callback)
+			callback(null, b);
+	});
+}
+
+function load_config_checkbox(option, selector) {
+	request.get(`api/config/${option}`, function(e, r, b) {
+		if (!e)
+			$(selector).prop('checked', String(b).trim() === 'true');
+	});
+}
+
+function request_failed(e, r) {
+	return e || !r || r.statusCode < 200 || r.statusCode >= 300;
+}
+
+function parse_json_body(body) {
+	try {
+		return JSON.parse(body);
+	} catch (error) {
+		console.log(error);
+		return null;
+	}
+}
+
+function load_max_concurrent_bots() {
+	request.get('api/concurrent', function(e, r, b) {
+		if (request_failed(e, r)) {
+			console.log(e, b);
+			status.error('Error loading max concurrent');
+			return;
+		}
+
+		const data = parse_json_body(b);
+		if (data && data.value)
+			$('#bot-concurrent').val(data.value);
+	});
+}
+
+function apply_max_concurrent_bots() {
+	const value = Number.parseInt($('#bot-concurrent').val(), 10);
+	if (!Number.isFinite(value) || value < 1) {
+		status.error('Max concurrent must be at least 1');
+		load_max_concurrent_bots();
+		return;
+	}
+
+	request.post({
+		url: 'api/concurrent',
+		form: { value: value }
+	}, function(e, r, b) {
+		if (request_failed(e, r)) {
+			console.log(e, b);
+			status.error('Error applying max concurrent!');
+			load_max_concurrent_bots();
+			return;
+		}
+
+		const data = parse_json_body(b);
+		$('#bot-concurrent').val(data && data.value ? data.value : value);
+		status.info('Applied max concurrent successfully');
+	});
+}
+
 function terminateButtonCallback() {
 	console.log('terminating',$(this).parent().parent().attr('data-id'));
     request(`api/bot/${$(this).parent().parent().attr('data-id')}/terminate`, function(e, r, b) {
@@ -142,6 +218,23 @@ function cmd(command, data, callback) {
 }
 
 var autorestart = {};
+
+function update_ban_tracker_data(row, data) {
+	if (!data) {
+		row.find('.client-ban-tracker').text('N/A');
+		return;
+	}
+
+	var text = data.status || 'unchecked';
+	if (data.reason)
+		text += ` (${data.reason})`;
+
+	row.find('.client-ban-tracker')
+		.removeClass('error warning')
+		.toggleClass('warning', data.status === 'suspicious')
+		.toggleClass('error', data.status === 'confirmed' || data.status === 'error')
+		.text(text);
+}
 
 function updateIPCData(row, id, data) {
 	if (!data) {
@@ -214,11 +307,18 @@ function updateUserData(bot, data) {
 		row.attr('data-pid', data.ipc.pid);
 		row.find('.client-pid').text(data.ipc.pid);
         row.find('.client-restarts').text(data.restarts);
-        row.find('.client-steam').empty().append($('<a></a>').text('Profile').attr('href', `https://steamcommunity.com/profiles/[U:1:${data.ipc.friendid}]`).attr('target', '_blank'));
+		const profile_url = data.profile_url || steam_id.profile_url_from_account_id32(data.ipc.friendid);
+		row.find('.client-steam').empty();
+		if (profile_url) {
+			row.find('.client-steam').append($('<a></a>').text('Profile').attr('href', profile_url).attr('target', '_blank'));
+		} else {
+			row.find('.client-steam').text('N/A');
+		}
 	}
 	if (data.state != 5) {
 		row.find('.active').text('N/A');
 	}
+	update_ban_tracker_data(row, data.ban_tracker);
 	updateIPCData(row, data.ipcID, data.ipc);
 }
 
@@ -230,9 +330,10 @@ function addClientRow(botid) {
     actions.append($('<input>').attr('type', 'button').attr('value', 'Terminate').on('click', terminateButtonCallback));
     row.append(actions);
 	row.append($('<td></td>').attr('class', 'client-restarts').text('N/A'));
-    row.append($('<td></td>').attr('class', 'client-bot-name').text(botid));
+	row.append($('<td></td>').attr('class', 'client-bot-name').text(botid));
 	row.append($('<td></td>').attr('class', 'client-state').text('UNDEFINED'));
 	row.append($('<td></td>').attr('class', 'client-steam').text('N/A'));
+	row.append($('<td></td>').attr('class', 'client-ban-tracker active').text('N/A'));
     row.append($('<td></td>').attr('class', 'client-uptime-total active').text('N/A'));
     row.append($('<td></td>').attr('class', 'client-pid active').text('N/A'));
 	row.append($('<td></td>').attr('class', 'client-id active').text('N/A'));
@@ -303,25 +404,16 @@ $(function() {
 			}
 		});
 	});
-	$('#bot-concurrent-apply').on('click', function() {
-		request.get('api/concurrent/' + $('#bot-concurrent').val(), function(e, r, b) {
-			if (e) {
-				console.log(e, b);
-				status.error('Error applying max concurrent!');
-			} else {
-				status.info('Applied max concurrent successfully');
-			}
-		});
-	});
-	request.get('api/concurrent', function(e, r, b) {
-		if (!e) {
-			try {
-				$('#bot-concurrent').val(JSON.parse(b).value);
-			} catch (error) {
-				console.log(error);
-			}
+	$('#bot-concurrent-apply').on('click', apply_max_concurrent_bots);
+	$('#bot-concurrent').on('keypress', function(e) {
+		if (e.keyCode === 13) {
+			apply_max_concurrent_bots();
+			e.preventDefault();
 		}
+	}).on('change', function() {
+		apply_max_concurrent_bots();
 	});
+	load_max_concurrent_bots();
     $('#api-login-button').on('click', () => {
         let password = $('#api-password').val();
         request.post({
@@ -343,4 +435,11 @@ $(function() {
 	$('#console-send').on('click', runCommand);
 	$("#bot-restartall").on('click', restartAllButtonCallback);
 	$("#bot-terminateall").on('click', terminateAllButtonCallback);
+	$('#ban-tracker-enabled').on('change', function() {
+		set_config('ban_tracker_enabled', $(this).prop('checked'), function(e) {
+			if (!e)
+				status.info('Account ban tracker ' + ($('#ban-tracker-enabled').prop('checked') ? 'enabled' : 'disabled'));
+		});
+	});
+	load_config_checkbox('ban_tracker_enabled', '#ban-tracker-enabled');
 });

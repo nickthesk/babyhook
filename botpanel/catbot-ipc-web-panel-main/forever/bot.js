@@ -211,6 +211,25 @@ function collect_descendant_pids(root_pid, processes) {
     return descendants;
 }
 
+function kill_process_tree(root_pid, signal) {
+    if (!root_pid || root_pid <= 0)
+        return 0;
+
+    const processes = read_process_table();
+    const pids = collect_descendant_pids(root_pid, processes).reverse();
+    pids.push(root_pid);
+
+    var killed_count = 0;
+    for (const pid of pids) {
+        try {
+            process.kill(pid, signal);
+            killed_count++;
+        } catch (error) { }
+    }
+
+    return killed_count;
+}
+
 function is_steamwebhelper_process(info) {
     if (!info)
         return false;
@@ -315,6 +334,7 @@ class Bot extends EventEmitter {
 
         this.stopped = false;
         this.account = null;
+        this.account_generation = 0;
         this.restarts = 0;
 
         this.log(`Initializing, folder = ${self.name}`);
@@ -893,6 +913,36 @@ class Bot extends EventEmitter {
             this.procFirejailGame.kill("SIGINT");
     }
 
+    force_kill_runtime_processes(delay_ms) {
+        const steam_pid = this.procFirejailSteam ? this.procFirejailSteam.pid : 0;
+        const game_pid = this.procFirejailGame ? this.procFirejailGame.pid : 0;
+        const run = () => {
+            const killed_game = kill_process_tree(game_pid, 'SIGKILL');
+            const killed_steam = kill_process_tree(steam_pid, 'SIGKILL');
+            if (killed_game || killed_steam)
+                this.log(`Force-killed runtime processes game=${killed_game} steam=${killed_steam}`);
+        };
+
+        if (delay_ms && delay_ms > 0)
+            setTimeout(run, delay_ms);
+        else
+            run();
+    }
+
+    advance_account_generation(reason) {
+        this.account_generation++;
+        this.log(`Advancing to account generation ${this.account_generation}: ${reason}`);
+        this.shouldRun = true;
+        this.shouldRestart = true;
+        this.account = null;
+        this.ipcState = null;
+        this.ipcID = -1;
+        this.ipcLastHeartbeat = 0;
+        this.killGame();
+        this.killSteam();
+        this.force_kill_runtime_processes(1000);
+    }
+
     gdbLogPath() {
         return './logs/' + this.name + '.gdb.log';
     }
@@ -1143,8 +1193,8 @@ class Bot extends EventEmitter {
                 else {
                     if (!this.account) {
                         this.state = STATE.NO_ACCOUNT;
-                        this.log('Preparing to restart with new account...');
-                        this.account = accounts.get(this.botid);
+                        this.log(`Preparing to restart with account generation ${this.account_generation}...`);
+                        this.account = accounts.get(this.botid, this.account_generation);
                     }
                     if (this.account && module.exports.currentlyStartingGames < MAX_CONCURRENT_BOTS && module.exports.lastStartTime + DELAY_START_TIME < time) {
                         module.exports.lastStartTime = time;
