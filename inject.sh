@@ -19,7 +19,7 @@ CATHOOK_BINARY=${CATHOOK_BINARY:-}
 CATHOOK_CONFIG_DIR=${CATHOOK_CONFIG_DIR:-$CATHOOK_ROOT/config}
 CATHOOK_AUTO_UPDATE_FILE=${CATHOOK_AUTO_UPDATE_FILE:-$CATHOOK_CONFIG_DIR/auto_update}
 CATHOOK_ATTACH_DELAY_SECONDS=${CATHOOK_ATTACH_DELAY_SECONDS:-0}
-CATHOOK_USE_GDB=${CATHOOK_USE_GDB:-0}
+CATHOOK_USE_GDB=${CATHOOK_USE_GDB:-1}
 CATHOOK_GDB_CRASH_REPORTS=${CATHOOK_GDB_CRASH_REPORTS:-0}
 CATHOOK_GDB_KEEP_CORE=${CATHOOK_GDB_KEEP_CORE:-0}
 CATHOOK_DISCORD_REPORTS=${CATHOOK_DISCORD_REPORTS:-1}
@@ -46,7 +46,7 @@ while [ "$#" -gt 0 ]; do
         -h | --help)
             echo "Usage: sudo ./inject.sh [--gdb|--no-gdb|--gdb-crash-reports|--no-gdb-crash-reports|--dev|--no-update]"
             echo "Mode: CATHOOK_MODE=default|textmode, CATHOOK_TEXTMODE=1, TEXTMODE=1, or saved first-run choice."
-            echo "GDB injection is disabled by default. Use ./preload for a no-gdb launch or --gdb to force attach injection."
+            echo "GDB injection is enabled by default. Use ./preload for a no-gdb launch or --no-gdb to block attach injection."
             exit 0
             ;;
         *)
@@ -98,8 +98,8 @@ require_gdb_injection_enabled() {
         return
     fi
 
-    echo "gdb injection is disabled for now."
-    echo "Use ./preload to launch TF2 without gdb, or run CATHOOK_USE_GDB=1 sudo ./inject.sh if you explicitly need attach injection."
+    echo "gdb injection is disabled by CATHOOK_USE_GDB=0 or --no-gdb."
+    echo "Use ./preload to launch TF2 without gdb, or run sudo ./inject.sh to attach with gdb."
     exit 1
 }
 
