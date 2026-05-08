@@ -566,7 +566,7 @@ void config_store::export_config(Config& config) const
     config.random_crits.seed_scan = std::clamp(
         get_int("random_crits.seed_scan", get_int("crithack.seed_scan", config.random_crits.seed_scan)),
         256,
-        100000);
+        8192);
 
     config.esp.master = get_bool("esp.master", config.esp.master);
     config.esp.lerp = get_bool("esp.lerp", config.esp.lerp);

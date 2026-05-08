@@ -16,10 +16,8 @@ V  o o  V  file: src/features/combat/random_crits/random_crits.cpp
 #include <climits>
 #include <cmath>
 #include <cstdint>
-#include <dlfcn.h>
 
 #include "MD5/MD5.hpp"
-#include "core/random_seed.hpp"
 #include "features/combat/aimbot/aimbot.hpp"
 #include "features/menu/config.hpp"
 #include "games/tf2/sdk/entities/player.hpp"
@@ -40,12 +38,17 @@ constexpr float melee_crit_chance = 0.15f;
 constexpr float rapid_crit_duration = 2.0f;
 constexpr float default_bucket_cap = 1000.0f;
 constexpr int bucket_attempts = 1000;
+constexpr int min_seed_scan = 256;
+constexpr int max_seed_scan = 8192;
 
-using random_seed_fn = void (*)(int);
-using random_int_fn = int (*)(int, int);
+constexpr int random_table_size = 32;
+constexpr int random_ia = 16807;
+constexpr int random_im = 2147483647;
+constexpr int random_iq = 127773;
+constexpr int random_ir = 2836;
+constexpr int random_ndiv = 1 + ((random_im - 1) / random_table_size);
+constexpr unsigned int max_random_range = 0x7fffffffU;
 
-random_seed_fn random_seed_func = nullptr;
-random_int_fn random_int_func = nullptr;
 int selected_command_number = 0;
 Weapon* selected_weapon = nullptr;
 int selected_seed = 0;
@@ -78,16 +81,75 @@ struct crit_bucket_info
   int next_crit = 0;
 };
 
-bool init_random()
+struct valve_random_stream
 {
-  if (random_seed_func != nullptr && random_int_func != nullptr) {
-    return true;
+  int idum = 0;
+  int iy = 0;
+  int iv[random_table_size]{};
+
+  void set_seed(int seed)
+  {
+    idum = seed < 0 ? seed : -seed;
+    iy = 0;
   }
 
-  random_seed_func = reinterpret_cast<random_seed_fn>(dlsym(RTLD_DEFAULT, "RandomSeed"));
-  random_int_func = reinterpret_cast<random_int_fn>(dlsym(RTLD_DEFAULT, "RandomInt"));
-  return random_seed_func != nullptr && random_int_func != nullptr;
-}
+  int generate_random_number()
+  {
+    int j = 0;
+    int k = 0;
+
+    if (idum <= 0 || iy == 0) {
+      if (-idum < 1) {
+        idum = 1;
+      } else {
+        idum = -idum;
+      }
+
+      for (j = random_table_size + 7; j >= 0; --j) {
+        k = idum / random_iq;
+        idum = (random_ia * (idum - (k * random_iq))) - (random_ir * k);
+        if (idum < 0) {
+          idum += random_im;
+        }
+        if (j < random_table_size) {
+          iv[j] = idum;
+        }
+      }
+      iy = iv[0];
+    }
+
+    k = idum / random_iq;
+    idum = (random_ia * (idum - (k * random_iq))) - (random_ir * k);
+    if (idum < 0) {
+      idum += random_im;
+    }
+
+    j = iy / random_ndiv;
+    if (j >= random_table_size || j < 0) {
+      j &= random_table_size - 1;
+    }
+
+    iy = iv[j];
+    iv[j] = idum;
+    return iy;
+  }
+
+  int random_int(int low, int high)
+  {
+    const auto range = static_cast<unsigned int>(high - low + 1);
+    if (range <= 1 || max_random_range < range - 1) {
+      return low;
+    }
+
+    const unsigned int max_acceptable = max_random_range - ((max_random_range + 1) % range);
+    unsigned int value = 0;
+    do {
+      value = static_cast<unsigned int>(generate_random_number());
+    } while (value > max_acceptable);
+
+    return low + static_cast<int>(value % range);
+  }
+};
 
 float remap_value(float value, float input_min, float input_max, float output_min, float output_max)
 {
@@ -307,12 +369,9 @@ int masked_crit_seed(Player* localplayer, Weapon* weapon, int seed)
 
 int crit_roll(Player* localplayer, Weapon* weapon, int seed)
 {
-  if (!init_random()) {
-    return 0;
-  }
-
-  random_seed_func(masked_crit_seed(localplayer, weapon, seed));
-  return random_int_func(0, weapon_random_range - 1);
+  auto random_stream = valve_random_stream{};
+  random_stream.set_seed(masked_crit_seed(localplayer, weapon, seed));
+  return random_stream.random_int(0, weapon_random_range - 1);
 }
 
 bool seed_matches(Player* localplayer, Weapon* weapon, int seed, bool want_crit, int roll)
@@ -334,9 +393,9 @@ bool seed_matches(Player* localplayer, Weapon* weapon, int seed, bool want_crit,
 
 int find_command_number(Player* localplayer, Weapon* weapon, int current_command_number, bool want_crit)
 {
-  const int max_seed_scan = std::clamp(config.random_crits.seed_scan, 256, 100000);
+  const int seed_scan = std::clamp(config.random_crits.seed_scan, min_seed_scan, max_seed_scan);
 
-  for (int offset = 0; offset <= max_seed_scan; ++offset) {
+  for (int offset = 0; offset <= seed_scan; ++offset) {
     const int command_number = current_command_number + offset;
     const int seed = MD5_PseudoRandom(static_cast<unsigned int>(command_number)) & INT_MAX;
     const int roll = crit_roll(localplayer, weapon, seed);
@@ -391,7 +450,7 @@ void run(user_cmd* cmd)
 {
   clear_selection();
 
-  if (cmd == nullptr || (cmd->buttons & IN_ATTACK) == 0 || !init_random()) {
+  if (cmd == nullptr || (cmd->buttons & IN_ATTACK) == 0) {
     return;
   }
 
@@ -476,7 +535,7 @@ indicator_state get_indicator_state()
   state.force_mode = config.random_crits.force_crits;
   state.save_mode = config.random_crits.save_bucket;
   state.enabled = config.random_crits.force_crits || config.random_crits.always_melee_crit || config.random_crits.save_bucket;
-  state.seed_scan = std::clamp(config.random_crits.seed_scan, 256, 100000);
+  state.seed_scan = std::clamp(config.random_crits.seed_scan, min_seed_scan, max_seed_scan);
 
   if (entity_list == nullptr) {
     return state;
@@ -526,7 +585,7 @@ indicator_state get_indicator_state()
   state.next_crit = bucket_info.next_crit;
 
   auto* current_cmd = localplayer->get_current_cmd();
-  if (current_cmd != nullptr && init_random() && state.available_crits > 0 && state.can_random_crit && !state.crit_banned && state.rapid_wait <= 0.0f) {
+  if (current_cmd != nullptr && state.available_crits > 0 && state.can_random_crit && !state.crit_banned && state.rapid_wait <= 0.0f) {
     const int command_number = find_command_number(localplayer, weapon, current_cmd->command_number, true);
     if (command_number != 0) {
       const int seed = MD5_PseudoRandom(static_cast<unsigned int>(command_number)) & INT_MAX;

@@ -1382,7 +1382,7 @@ static void draw_crits_content() {
     cat_menu::checkbox("Save bucket", &config.random_crits.save_bucket);
     cat_menu::checkbox("Respect bucket", &config.random_crits.respect_bucket);
     cat_menu::checkbox("Advanced stats", &config.random_crits.advanced_stats);
-    cat_menu::slider_int("Seed scan", &config.random_crits.seed_scan, 256, 100000);
+    cat_menu::slider_int("Seed scan", &config.random_crits.seed_scan, 256, 8192);
   });
   cat_menu::end_flow_layout();
 }
