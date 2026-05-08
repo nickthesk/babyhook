@@ -1504,7 +1504,7 @@ class Bot extends EventEmitter {
         self.procFirejailGame = child_process.spawn(LAUNCH_OPTIONS_GAME.replace("%GAMEPATH%", bash_double_quote_escape(game_launch_path))
             .replace("%RUNTIME_PREFIX%", self.gameRuntimePrefix())
             .replace("%GAME_BINARY%", game_binary)
-            .replace("%CATHOOK_ROOT%", bash_double_quote_escape(CATHOOK_ROOT))
+            .replace(/%CATHOOK_ROOT%/g, bash_double_quote_escape(CATHOOK_ROOT))
             .replace("%CATHOOK_ATTACH_DELAY_SECONDS%", String(CATHOOK_ATTACH_DELAY_SECONDS))
             .replace("%BOT_ID%", String(self.botid))
             .replace("%BOT_NAME%", self.name)
