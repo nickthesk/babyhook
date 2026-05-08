@@ -25,6 +25,8 @@ V  o o  V  file: src/features/combat/aimbot/aimbot.cpp
 #include "games/tf2/sdk/interfaces/entity_list.hpp"
 #include "games/tf2/sdk/interfaces/prediction.hpp"
 
+#include "features/automation/nographics/nographics.hpp"
+
 #include "hitscan_aim.hpp"
 #include "melee_aim.hpp"
 #include "proj_aim.hpp"
@@ -605,6 +607,15 @@ static bool aimbot_projectile_solution_ready(Player* localplayer,
     predicted_target_origin);
 }
 
+static bool aimbot_should_relax_final_trace()
+{
+  if (nographics::should_use_aimbot_trace_fallback()) {
+    return true;
+  }
+
+  return global_vars != nullptr && global_vars->frametime >= (1.0f / 30.0f);
+}
+
 bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
   g_aimbot_requested_shot = false;
   const Vec3 source_view_angles = user_cmd != nullptr ? user_cmd->view_angles : original_view_angles;
@@ -718,10 +729,17 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     user_cmd,
     best_candidate,
     projectile_view_angles);
+  const bool relaxed_final_trace = aimbot_should_relax_final_trace();
   const bool hitscan_solution = !aimbot_is_projectile_weapon(weapon) && !aimbot_is_melee_weapon(weapon);
-  const bool hitscan_ready = !hitscan_solution || hitscan_aim_trace_candidate(localplayer, best_candidate, user_cmd->view_angles);
+  const bool hitscan_ready = !hitscan_solution ||
+    (relaxed_final_trace && best_candidate.visible) ||
+    hitscan_aim_trace_candidate(localplayer, best_candidate, user_cmd->view_angles);
   const bool melee_solution = aimbot_is_melee_weapon(weapon);
+  const bool relaxed_melee_ready = relaxed_final_trace &&
+    ((best_candidate.player != nullptr && best_candidate.melee_has_prediction) ||
+      (best_candidate.player == nullptr && best_candidate.entity != nullptr && best_candidate.visible));
   const bool melee_ready = !melee_solution ||
+    relaxed_melee_ready ||
     (best_candidate.player != nullptr &&
       best_candidate.melee_has_prediction &&
       melee_aim_trace_candidate(
