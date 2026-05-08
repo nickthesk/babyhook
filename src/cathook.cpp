@@ -20,9 +20,11 @@ V  o o  V  file: src/cathook.cpp
 #include <dlfcn.h>
 #include <fstream>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 #include <unistd.h>
 #include <csignal>
 
@@ -549,10 +551,7 @@ void shutdown_vulkan_runtime()
     vk_descriptor_pool = VK_NULL_HANDLE;
   }
 
-  if (queue_families != nullptr) {
-    std::free(queue_families);
-    queue_families = nullptr;
-  }
+  queue_families.reset();
 
   if (vk_instance != VK_NULL_HANDLE) {
     vkDestroyInstance(vk_instance, vk_allocator);
@@ -1359,14 +1358,16 @@ bool initialize_game_runtime() {
       create_info.ppEnabledExtensionNames = &instance_extension;
   
       // Create Vulkan Instance without any debug feature
-      vkCreateInstance(&create_info, vk_allocator, &vk_instance);
+      const auto instance_result = vkCreateInstance(&create_info, vk_allocator, &vk_instance);
+      error_assert(instance_result != VK_SUCCESS || vk_instance == VK_NULL_HANDLE, "Failed to create Vulkan dummy instance\n");
   
-      uint32_t gpu_count;
-      vkEnumeratePhysicalDevices(vk_instance, &gpu_count, NULL);
-      IM_ASSERT(gpu_count > 0);
+      uint32_t gpu_count = 0;
+      auto enumerate_result = vkEnumeratePhysicalDevices(vk_instance, &gpu_count, nullptr);
+      error_assert(enumerate_result != VK_SUCCESS || gpu_count == 0, "Failed to enumerate Vulkan physical devices\n");
 
-      VkPhysicalDevice* gpus = new VkPhysicalDevice[sizeof(VkPhysicalDevice) * gpu_count];
-      vkEnumeratePhysicalDevices(vk_instance, &gpu_count, gpus);
+      auto gpus = std::vector<VkPhysicalDevice>(gpu_count);
+      enumerate_result = vkEnumeratePhysicalDevices(vk_instance, &gpu_count, gpus.data());
+      error_assert(enumerate_result != VK_SUCCESS, "Failed to read Vulkan physical devices\n");
 
       // If a number >1 of GPUs got reported, find discrete GPU if present, or use first one available. This covers
       // most common cases (multi-gpu/integrated+dedicated graphics). Handling more complicated setups (multiple
@@ -1383,13 +1384,13 @@ bool initialize_game_runtime() {
 	
       vk_physical_device = gpus[use_gpu];
 
-      delete[] gpus;
+      count = 0;
+      vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &count, nullptr);
+      error_assert(count == 0, "Failed to enumerate Vulkan queue families\n");
 
-      vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &count, NULL);
+      queue_families = std::make_unique<VkQueueFamilyProperties[]>(count);
 
-      queue_families = (VkQueueFamilyProperties*)malloc(count*sizeof(VkQueueFamilyProperties));
-
-      vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &count, queue_families);
+      vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &count, queue_families.get());
 
       for (uint32_t i = 0; i < count; ++i) {
 	if (queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
@@ -1410,16 +1411,16 @@ bool initialize_game_runtime() {
       queue_info.pQueuePriorities = &queue_priority;
 
       VkDeviceCreateInfo create_info2 = { };
-      create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+      create_info2.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
       create_info2.queueCreateInfoCount = 1;
       create_info2.pQueueCreateInfos = &queue_info;
-      create_info.enabledExtensionCount = 1;
-      create_info.ppEnabledExtensionNames = &device_extension;
+      create_info2.enabledExtensionCount = 1;
+      create_info2.ppEnabledExtensionNames = &device_extension;
 
       VkDevice vk_fake_device = VK_NULL_HANDLE;
 
-      vkCreateDevice(vk_physical_device, (const VkDeviceCreateInfo*)&create_info, vk_allocator, &vk_fake_device);
-      error_assert(vk_fake_device == nullptr, "Failed to create Vulkan dummy device\n");
+      const auto device_result = vkCreateDevice(vk_physical_device, &create_info2, vk_allocator, &vk_fake_device);
+      error_assert(device_result != VK_SUCCESS || vk_fake_device == VK_NULL_HANDLE, "Failed to create Vulkan dummy device\n");
       
       queue_present_original = (VkResult (*)(VkQueue, const VkPresentInfoKHR*))vkGetDeviceProcAddr(vk_fake_device, "vkQueuePresentKHR");
       acquire_next_image_original = (VkResult (*)(VkDevice, VkSwapchainKHR, uint64_t, VkSemaphore, VkFence, uint32_t*))vkGetDeviceProcAddr(vk_fake_device, "vkAcquireNextImageKHR");

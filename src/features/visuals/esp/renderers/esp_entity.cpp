@@ -11,7 +11,9 @@ V  o o  V  file: src/features/visuals/esp/renderers/esp_entity.cpp
 
 #include "../esp.hpp"
 
-#include <stdlib.h>
+#include <array>
+#include <cstdlib>
+#include <cwchar>
 #include <string>
 
 #include "features/menu/config.hpp"
@@ -258,12 +260,12 @@ void name_esp_entity(Vec3 screen, Entity* entity, Player* localplayer) {
   if (config.debug.debug_render_all_entities == true) {
     std::string model_name = entity->get_model_name();
       
-    wchar_t model_name_w[64];
-    size_t len = std::mbstowcs(model_name_w, model_name.c_str(), 64);
-    if (len == (size_t)-1) return;
+    std::array<wchar_t, 64> model_name_w{};
+    const auto len = std::mbstowcs(model_name_w.data(), model_name.c_str(), model_name_w.size() - 1);
+    if (len == static_cast<std::size_t>(-1)) return;
 
     std::wstring a
-      = L"Model Path: " + std::wstring(model_name_w)
+      = L"Model Path: " + std::wstring(model_name_w.data())
       + L"\nClass ID: " + std::to_wstring(entity->get_class_id())
       + L"\nEntity Index: " + std::to_wstring(entity->get_index());
 
@@ -277,16 +279,18 @@ void name_esp_entity(Vec3 screen, Entity* entity, Player* localplayer) {
 
 void timer_esp_entity() {
   
-  for (unsigned int i = 0; i < pickup_item_cache.size(); ++i) {
-    PickupItem pickup_item = pickup_item_cache[i];
-    float time_delta = pickup_item.time - global_vars->curtime;
+  for (auto item = pickup_item_cache.begin(); item != pickup_item_cache.end();) {
+    const float time_delta = item->time - global_vars->curtime;
     if (time_delta < 0) {
-      pickup_item_cache.erase(pickup_item_cache.begin()+i);
+      item = pickup_item_cache.erase(item);
       continue;
     }
     
     Vec3 screen;
-    if (!overlay_projection::world_to_screen(pickup_item.location, &screen)) continue;
+    if (!overlay_projection::world_to_screen(item->location, &screen)) {
+      ++item;
+      continue;
+    }
 
     std::wstring time_delta_str = std::to_wstring(time_delta);
 
@@ -295,6 +299,7 @@ void timer_esp_entity() {
     surface->draw_set_text_color(255, 255, 255, 255);
     surface->draw_set_text_pos(screen.x - (surface->get_string_width(esp_entity_font, time_delta_str.c_str())*0.5), screen.y);
     surface->draw_print_text(time_delta_str.c_str(), wcslen(time_delta_str.c_str()));
+    ++item;
   }
 
 }

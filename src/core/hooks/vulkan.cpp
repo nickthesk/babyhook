@@ -12,6 +12,8 @@ V  o o  V  file: src/core/hooks/vulkan.cpp
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
 
+#include <memory>
+
 #include "imgui/imgui_impl_vulkan.h"
 #include "imgui/imgui_impl_sdl2.h"
 
@@ -31,7 +33,7 @@ V  o o  V  file: src/core/hooks/vulkan.cpp
 
 static VkDevice vk_device;
 static VkAllocationCallbacks* vk_allocator = NULL;
-static VkQueueFamilyProperties* queue_families;
+static std::unique_ptr<VkQueueFamilyProperties[]> queue_families;
 static uint32_t queue_family = (uint32_t)-1;
 static VkRenderPass vk_render_pass = VK_NULL_HANDLE;
 static VkDescriptorPool vk_descriptor_pool = VK_NULL_HANDLE;
