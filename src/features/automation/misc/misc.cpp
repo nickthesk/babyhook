@@ -25,6 +25,7 @@ V  o o  V  file: src/features/automation/misc/misc.cpp
 #include <vector>
 
 #include "core/shared/sigs.hpp"
+#include "core/hooks/region_selector.hpp"
 #include "core/print.hpp"
 #include "core/math/math.hpp"
 #include "core/logger.hpp"
@@ -592,6 +593,16 @@ bool should_emit_queue_debug(float& next_log_time)
   return true;
 }
 
+request_queue_for_match_fn get_shared_request_queue_for_match()
+{
+  if (!region_selector_request_queue_for_match_available())
+  {
+    return nullptr;
+  }
+
+  return request_queue_for_match_with_region_selector;
+}
+
 void initialize_party_client_api()
 {
   if (g_party_client_api.initialized)
@@ -616,7 +627,7 @@ void initialize_party_client_api()
   g_party_client_api.is_in_queue_for_match_group = reinterpret_cast<is_in_queue_for_match_group_fn>(sigscan_module("client.so", sigs::is_in_queue_for_match_group));
   g_party_client_api.is_in_standby_queue = reinterpret_cast<is_in_standby_queue_fn>(sigscan_module("client.so", sigs::is_in_standby_queue));
   g_party_client_api.abandon_current_match = reinterpret_cast<abandon_current_match_fn>(sigscan_module("client.so", sigs::abandon_current_match));
-  g_party_client_api.request_queue_for_match = reinterpret_cast<request_queue_for_match_fn>(sigscan_module("client.so", sigs::request_queue_for_match));
+  g_party_client_api.request_queue_for_match = get_shared_request_queue_for_match();
   g_party_client_api.request_leave_for_match = reinterpret_cast<request_leave_for_match_fn>(sigscan_module("client.so", sigs::request_leave_for_match));
   g_party_client_api.request_queue_for_standby = reinterpret_cast<request_queue_for_standby_fn>(sigscan_module("client.so", sigs::request_queue_for_standby));
   g_party_client_api.request_leave_standby = reinterpret_cast<request_leave_standby_fn>(sigscan_module("client.so", sigs::request_leave_standby));

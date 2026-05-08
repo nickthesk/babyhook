@@ -39,6 +39,16 @@ int steam_networking_utils_get_direct_ping_to_pop_hook(void* self, const steam_n
   return automation::region_selector::adjust_ping(original_ping, pop_id);
 }
 
+bool region_selector_request_queue_for_match_available()
+{
+  return region_selector_request_queue_for_match_original != nullptr;
+}
+
+void request_queue_for_match_with_region_selector(void* self, const unsigned int match_group)
+{
+  region_selector_request_queue_for_match_hook(self, match_group);
+}
+
 void region_selector_request_queue_for_match_hook(void* self, const unsigned int match_group)
 {
   if (config.misc.automation.region_selector)

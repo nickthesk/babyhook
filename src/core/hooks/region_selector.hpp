@@ -32,6 +32,8 @@ int steam_networking_utils_get_ping_to_data_center_hook(
   steam_networking_pop_id pop_id,
   steam_networking_pop_id* via_relay_pop);
 int steam_networking_utils_get_direct_ping_to_pop_hook(void* self, steam_networking_pop_id pop_id);
+bool region_selector_request_queue_for_match_available();
+void request_queue_for_match_with_region_selector(void* self, unsigned int match_group);
 void region_selector_request_queue_for_match_hook(void* self, unsigned int match_group);
 bool install_steam_networking_utils_hooks();
 

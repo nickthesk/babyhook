@@ -1194,7 +1194,7 @@ bool initialize_game_runtime() {
   region_selector_request_queue_for_match_original =
     (void (*)(void*, unsigned int))sigscan_module("client.so", sigs::request_queue_for_match);
   if (region_selector_request_queue_for_match_original == nullptr) {
-    print("Failed to find CTFPartyClient::RequestQueueForMatch; region selector queue refresh disabled\n");
+    print("Failed to find CTFPartyClient::RequestQueueForMatch; autoqueue and region selector queue refresh disabled\n");
   }
 
   tf_gc_client_system_so_event_original =
