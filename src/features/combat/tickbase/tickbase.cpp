@@ -507,7 +507,11 @@ auto run_rebuilt_move(float accumulated_extra_samples, bool final_tick, bool for
   g_state.send_packet = true;
   g_state.final_tick = final_tick;
 
-  auto* channel = client_state->m_NetChannel;
+  auto* channel = client_state != nullptr ? client_state->m_NetChannel : nullptr;
+  if (channel == nullptr) {
+    return false;
+  }
+
   const bool should_gate_packet = !force_send
       && (!channel->is_loopback())
       && ((*g_state.net_time < client_state->m_flNextCmdTime) || !channel->can_packet() || !final_tick);
@@ -547,6 +551,11 @@ auto run_rebuilt_move(float accumulated_extra_samples, bool final_tick, bool for
 
   if (!g_state.send_packet) {
     return true;
+  }
+
+  channel = client_state != nullptr ? client_state->m_NetChannel : nullptr;
+  if (channel == nullptr) {
+    return false;
   }
 
   if (client_state->m_nSignonState == signon_state_full) {
