@@ -18,8 +18,6 @@ V  o o  V  file: src/core/hooks/client_create_move.cpp
 #include "games/tf2/sdk/interfaces/prediction.hpp"
 #include "games/tf2/sdk/interfaces/steam_friends.hpp"
 
-#include <cstdint>
-
 #include "games/tf2/sdk/entities/player.hpp"
 
 #include "core/entity_cache.hpp"
@@ -30,34 +28,31 @@ V  o o  V  file: src/core/hooks/client_create_move.cpp
 #include "features/combat/tickbase/tickbase.hpp"
 
 void (*client_create_move_original)(void*, int, float, bool);
-using push_allow_bone_access_fn = void (*)(bool, bool, const char*);
-using pop_bone_access_fn = void (*)(const char*);
+using auto_allow_bone_access_fn = void (*)(void*, bool, bool);
+using auto_allow_bone_access_on_delete_fn = void (*)(void*);
 
-push_allow_bone_access_fn push_allow_bone_access_original = nullptr;
-pop_bone_access_fn pop_bone_access_original = nullptr;
+auto_allow_bone_access_fn auto_allow_bone_access_original = nullptr;
+auto_allow_bone_access_on_delete_fn auto_allow_bone_access_on_delete_original = nullptr;
 
 namespace
 {
 
-const char* bone_access_tag()
-{
-  return reinterpret_cast<const char*>(static_cast<std::uintptr_t>(1));
-}
-
 struct scoped_bone_access {
   scoped_bone_access() {
-    active = push_allow_bone_access_original != nullptr && pop_bone_access_original != nullptr;
+    active = auto_allow_bone_access_original != nullptr &&
+             auto_allow_bone_access_on_delete_original != nullptr;
     if (active) {
-      push_allow_bone_access_original(true, false, bone_access_tag());
+      auto_allow_bone_access_original(auto_allow_storage, true, false);
     }
   }
 
   ~scoped_bone_access() {
     if (active) {
-      pop_bone_access_original(bone_access_tag());
+      auto_allow_bone_access_on_delete_original(auto_allow_storage);
     }
   }
 
+  char auto_allow_storage[16]{};
   bool active = false;
 };
 

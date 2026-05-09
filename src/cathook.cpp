@@ -1061,15 +1061,16 @@ bool initialize_game_runtime() {
   in_cond_original = (bool (*)(void*, int))sigscan_module("client.so", sigs::in_cond);
   error_assert(in_cond_original == nullptr, "Failed to find InCond");
 
-  push_allow_bone_access_original =
-    reinterpret_cast<push_allow_bone_access_fn>(
-      sigscan_module("client.so", sigs::base_animating_push_allow_bone_access));
-  error_assert(push_allow_bone_access_original == nullptr, "Failed to find C_BaseAnimating::PushAllowBoneAccess");
+  auto_allow_bone_access_original =
+    reinterpret_cast<auto_allow_bone_access_fn>(
+      sigscan_module("client.so", sigs::base_animating_auto_allow_bone_access));
+  error_assert(auto_allow_bone_access_original == nullptr, "Failed to find C_BaseAnimating::AutoAllowBoneAccess");
 
-  pop_bone_access_original =
-    reinterpret_cast<pop_bone_access_fn>(
-      sigscan_module("client.so", sigs::base_animating_pop_bone_access));
-  error_assert(pop_bone_access_original == nullptr, "Failed to find C_BaseAnimating::PopBoneAccess");
+  auto_allow_bone_access_on_delete_original =
+    reinterpret_cast<auto_allow_bone_access_on_delete_fn>(
+      sigscan_module("client.so", sigs::base_animating_auto_allow_bone_access_on_delete));
+  error_assert(auto_allow_bone_access_on_delete_original == nullptr,
+    "Failed to find C_BaseAnimating::AutoAllowBoneAccess destructor");
  
   // VMT Function Hooks
   client_mode_vtable = *(void***)client_mode_interface;  
