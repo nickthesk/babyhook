@@ -66,10 +66,6 @@ inline bool hitscan_aim_should_try_head_first(Player* localplayer, Weapon* weapo
     (config.aimbot.wait_for_headshot || aimbot_headshot_ready_for_priority(localplayer, weapon));
 }
 
-inline bool hitscan_aim_must_use_headshot(Weapon* weapon) {
-  return weapon != nullptr && weapon->is_headshot_weapon() && config.aimbot.wait_for_headshot;
-}
-
 inline unsigned int hitscan_aim_world_trace_mask() {
   unsigned int trace_mask = MASK_SHOT | CONTENTS_GRATE;
   if (config.aimbot.shoot_through_glass) {
@@ -406,9 +402,7 @@ inline aimbot_point hitscan_aim_find_point(Player* localplayer,
   }
 
   const uint32_t configured_hitbox_mask = hitscan_aim_configured_hitbox_mask();
-  const uint32_t hitbox_mask = hitscan_aim_must_use_headshot(weapon)
-    ? aim_hitbox_mask_head
-    : configured_hitbox_mask;
+  const uint32_t hitbox_mask = configured_hitbox_mask;
   if (hitscan_aim_should_try_head_first(localplayer, weapon, hitbox_mask)) {
     aimbot_point head_point = aimbot_find_best_point(
       localplayer,
@@ -433,10 +427,6 @@ inline aimbot_point hitscan_aim_find_point(Player* localplayer,
       if (head_point.valid) {
         return head_point;
       }
-    }
-
-    if (hitscan_aim_must_use_headshot(weapon)) {
-      return {};
     }
   }
 

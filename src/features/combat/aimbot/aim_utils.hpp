@@ -1047,10 +1047,15 @@ inline bool aimbot_weapon_requires_scope(Weapon* weapon) {
 
 inline bool aimbot_scoped_only_ready(Player* localplayer, Weapon* weapon) {
   if (localplayer == nullptr || weapon == nullptr) return false;
-  if (localplayer->is_scoped()) return true;
+  const bool scoped_hitscan_rifle = aimbot_is_scoped_hitscan_rifle(weapon);
+  if (localplayer->is_scoped()) {
+    return !config.aimbot.scoped_only ||
+      !scoped_hitscan_rifle ||
+      aimbot_headshot_ready_for_priority(localplayer, weapon);
+  }
   if (aimbot_weapon_requires_scope(weapon)) return false;
   if (!config.aimbot.scoped_only) return true;
-  return !aimbot_is_scoped_hitscan_rifle(weapon);
+  return !scoped_hitscan_rifle;
 }
 
 inline bool aimbot_sniper_headshot_ready(Player* localplayer, Weapon* weapon) {
