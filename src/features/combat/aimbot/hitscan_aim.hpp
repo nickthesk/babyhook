@@ -31,6 +31,12 @@ struct hitscan_aim_bounds_zone {
   Vec3 maxs{};
 };
 
+struct hitscan_aim_trace_result {
+  bool hit = false;
+  Entity* entity = nullptr;
+  int hitbox = -1;
+};
+
 inline Vec3 hitscan_aim_bullet_angles(Player* localplayer, const Vec3& view_angles) {
   if (localplayer == nullptr) {
     return view_angles;
@@ -57,7 +63,11 @@ inline bool hitscan_aim_should_try_head_first(Player* localplayer, Weapon* weapo
     weapon != nullptr &&
     (hitbox_mask & aim_hitbox_mask_head) != 0 &&
     weapon->is_headshot_weapon() &&
-    aimbot_headshot_ready_for_priority(localplayer, weapon);
+    (config.aimbot.wait_for_headshot || aimbot_headshot_ready_for_priority(localplayer, weapon));
+}
+
+inline bool hitscan_aim_must_use_headshot(Weapon* weapon) {
+  return weapon != nullptr && weapon->is_headshot_weapon() && config.aimbot.wait_for_headshot;
 }
 
 inline unsigned int hitscan_aim_world_trace_mask() {
@@ -380,7 +390,10 @@ inline aimbot_point hitscan_aim_find_point(Player* localplayer,
     return {};
   }
 
-  const uint32_t hitbox_mask = hitscan_aim_configured_hitbox_mask();
+  const uint32_t configured_hitbox_mask = hitscan_aim_configured_hitbox_mask();
+  const uint32_t hitbox_mask = hitscan_aim_must_use_headshot(weapon)
+    ? aim_hitbox_mask_head
+    : configured_hitbox_mask;
   if (hitscan_aim_should_try_head_first(localplayer, weapon, hitbox_mask)) {
     aimbot_point head_point = aimbot_find_best_point(
       localplayer,
@@ -407,7 +420,7 @@ inline aimbot_point hitscan_aim_find_point(Player* localplayer,
       }
     }
 
-    if (config.aimbot.wait_for_headshot) {
+    if (hitscan_aim_must_use_headshot(weapon)) {
       return {};
     }
   }
@@ -457,6 +470,9 @@ inline aimbot_candidate hitscan_aim_make_candidate(Player* localplayer,
   candidate.fov = aimbot_calculate_fov(hitscan_aim_command_angles(localplayer, point.angles), original_view_angles);
   candidate.distance = distance_3d(localplayer->get_origin(), player->get_origin());
   candidate.health = player->get_health();
+  candidate.simulation_time = player->get_simulation_time();
+  candidate.tick_count = local_prediction_time_to_ticks(candidate.simulation_time + local_prediction_interp_time());
+  candidate.command_angles = hitscan_aim_command_angles(localplayer, point.angles);
   candidate.visible = visible;
   return candidate;
 }
@@ -527,7 +543,14 @@ inline bool hitscan_aim_textmode_trace_fallback(const aimbot_candidate& candidat
 
 inline bool hitscan_aim_trace_candidate(Player* localplayer,
   const aimbot_candidate& candidate,
-  const Vec3& command_view_angles) {
+  const Vec3& command_view_angles,
+  const Vec3& spread_offset = {},
+  bool use_spread = false,
+  hitscan_aim_trace_result* result = nullptr) {
+  if (result != nullptr) {
+    *result = {};
+  }
+
   if (localplayer == nullptr ||
       candidate.entity == nullptr ||
       engine_trace == nullptr ||
@@ -538,9 +561,18 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
   Vec3 start_pos = localplayer->get_shoot_pos();
   const Vec3 bullet_angles = hitscan_aim_bullet_angles(localplayer, command_view_angles);
   Vec3 forward{};
-  angle_vectors(bullet_angles, &forward, nullptr, nullptr);
+  Vec3 right{};
+  Vec3 up{};
+  angle_vectors(bullet_angles, &forward, &right, &up);
   if (!aimbot_vec3_is_finite(forward)) {
     return false;
+  }
+
+  if (use_spread) {
+    forward = local_prediction_normalize(forward + (right * spread_offset.x) + (up * spread_offset.y));
+    if (!aimbot_vec3_is_finite(forward)) {
+      return false;
+    }
   }
 
   const float target_distance = distance_3d(start_pos, candidate.aim_position);
@@ -553,15 +585,35 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
 
   struct trace_t trace_world{};
   engine_trace->trace_ray(&ray, aimbot_hitscan_trace_mask(), &filter, &trace_world);
+  if (result != nullptr) {
+    result->entity = static_cast<Entity*>(trace_world.entity);
+    result->hitbox = trace_world.hitbox;
+  }
+
   if (trace_world.entity != candidate.entity) {
-    return hitscan_aim_textmode_trace_fallback(candidate, start_pos, end_pos);
+    const bool fallback_hit = hitscan_aim_textmode_trace_fallback(candidate, start_pos, end_pos);
+    if (result != nullptr) {
+      result->hit = fallback_hit;
+      if (fallback_hit) {
+        result->entity = candidate.entity;
+        result->hitbox = candidate.hitbox;
+      }
+    }
+    return fallback_hit;
   }
 
   if (candidate.hitbox == aim_hitbox_head && candidate.player != nullptr) {
-    return trace_world.hitbox == aim_hitbox_head ||
-           hitscan_aim_textmode_trace_fallback(candidate, start_pos, end_pos);
+    const bool head_hit = trace_world.hitbox == aim_hitbox_head ||
+      hitscan_aim_textmode_trace_fallback(candidate, start_pos, end_pos);
+    if (result != nullptr) {
+      result->hit = head_hit;
+    }
+    return head_hit;
   }
 
+  if (result != nullptr) {
+    result->hit = true;
+  }
   return true;
 }
 

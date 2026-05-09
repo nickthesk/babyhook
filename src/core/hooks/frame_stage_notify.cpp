@@ -13,6 +13,7 @@ V  o o  V  file: src/core/hooks/frame_stage_notify.cpp
 #include "games/tf2/sdk/interfaces/steam_friends.hpp"
 
 #include <string>
+#include <utility>
 
 #include "games/tf2/sdk/entities/player.hpp"
 
@@ -100,12 +101,14 @@ void frame_stage_notify_hook(void* me, ClientFrameStage current_stage) {
       }
       
       entity_cache.clear();
+      entity_cache_clear_snapshot();
 
       break;
     }
 
   case FRAME_NET_UPDATE_END:
     {
+      entity_cache_snapshot snapshot{};
       
       for (unsigned int i = 1; i <= entity_list->get_max_entities(); ++i) {
 	Entity* entity = entity_list->entity_from_index(i);
@@ -121,6 +124,20 @@ void frame_stage_notify_hook(void* me, ClientFrameStage current_stage) {
             auto* player = static_cast<Player*>(entity);
             if (!player->is_dormant() && player->is_alive()) {
 	      entity_cache[class_id::PLAYER].push_back(entity);
+              snapshot.players.push_back({
+                .player = player,
+                .entity = entity,
+                .index = player->get_index(),
+                .simulation_time = player->get_simulation_time(),
+                .origin = player->get_origin(),
+                .velocity = player->get_velocity(),
+                .team = player->get_team(),
+                .player_class = static_cast<int>(player->get_tf_class()),
+                .alive = true,
+                .dormant = false,
+                .friendly = player->is_friend(),
+                .ignored = player->is_ignored()
+              });
               local_prediction_record_entity(entity);
             }
 	    
@@ -173,6 +190,9 @@ void frame_stage_notify_hook(void* me, ClientFrameStage current_stage) {
 	}
 
       }
+
+      snapshot.entities = entity_cache;
+      entity_cache_publish_snapshot(std::move(snapshot));
 
       if (global_vars->curtime - last_time >= 1) {
 	last_time = global_vars->curtime;

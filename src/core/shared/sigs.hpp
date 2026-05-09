@@ -70,6 +70,8 @@ constexpr const char* item_definition_lookup =
   "55 48 89 E5 41 55 41 54 49 89 FC 53 48 83 EC ? 8B 87 ? ? ? ? 85 C0 0F 84 ? ? ? ? 41 89 F1";
 constexpr const char* setup_bones =
   "55 48 89 E5 41 57 41 56 41 55 41 54 41 89 CC 53 48 89 FB 48 81 EC ? ? ? ? 48 8B 05 ? ? ? ?";
+constexpr const char* tf_weapon_base_gun_get_bullet_spread =
+  "55 31 D2 48 89 FE B9 ? ? ? ? 48 89 E5 41 54 53 48 89 FB 48 83 EC ? 48 63 87 ? ? ? ? 48 C1 E0 ?";
 constexpr const char* base_animating_auto_allow_bone_access =
   "44 0F B6 C2 40 0F B6 FE BA 01 00 00 00 44 89 C6 E9 ? ? ? ?";
 constexpr const char* base_animating_auto_allow_bone_access_on_delete =

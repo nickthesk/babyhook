@@ -16,6 +16,7 @@ V  o o  V  file: src/features/menu/indicators.hpp
 #include "binds.hpp"
 #include "menu.hpp"
 
+#include "features/combat/aimbot/aimbot_debug.hpp"
 #include "features/combat/random_crits/random_crits.hpp"
 #include "features/combat/tickbase/tickbase.hpp"
 #include "features/visuals/spectator_list.hpp"
@@ -46,7 +47,8 @@ enum class section_kind
   random_crits,
   tickbase,
   keybinds,
-  spectators
+  spectators,
+  aimbot_debug
 };
 
 struct section_spec
@@ -173,7 +175,7 @@ inline auto collect_spectator_rows(Player** target_player_out) -> std::vector<sp
 inline auto build_sections() -> std::vector<section_spec>
 {
   std::vector<section_spec> sections{};
-  sections.reserve(3);
+  sections.reserve(5);
 
   if (has_indicator(Visuals::Indicators::random_crits)) {
     const bool advanced_stats = config.random_crits.advanced_stats;
@@ -219,6 +221,18 @@ inline auto build_sections() -> std::vector<section_spec>
     }
   }
 
+  if (config.aimbot.debug_overlay) {
+    const aimbot_debug_state& state = aimbot_debug_get_state();
+    if (menu_focused || state.active) {
+      sections.push_back({
+        .kind = section_kind::aimbot_debug,
+        .width = 300.0f,
+        .height = 174.0f,
+        .position = ImVec2(config.aimbot.debug_overlay_x, config.aimbot.debug_overlay_y)
+      });
+    }
+  }
+
   return sections;
 }
 
@@ -239,6 +253,8 @@ inline auto section_drag_position(section_kind kind) -> section_position_refs
     return { .x = &config.visuals.indicators.keybinds_x, .y = &config.visuals.indicators.keybinds_y };
   case section_kind::spectators:
     return { .x = &config.visuals.spectator_list.x, .y = &config.visuals.spectator_list.y };
+  case section_kind::aimbot_debug:
+    return { .x = &config.aimbot.debug_overlay_x, .y = &config.aimbot.debug_overlay_y };
   }
 
   return {};
@@ -436,6 +452,47 @@ inline void draw_info_row(ImDrawList* draw_list, const ImVec2 position, const fl
 
   const ImVec2 value_size = ImGui::CalcTextSize(clipped_value.c_str());
   draw_list->AddText(ImVec2(position.x + width - value_size.x - 12.0f, position.y), value_color, clipped_value.c_str());
+}
+
+inline auto bool_text(const bool value) -> const char*
+{
+  return value ? "yes" : "no";
+}
+
+inline void draw_aimbot_debug_section(ImDrawList* draw_list, const ImVec2 position)
+{
+  const aimbot_debug_state& state = aimbot_debug_get_state();
+  constexpr float width = 300.0f;
+  constexpr float height = 174.0f;
+  constexpr float row_height = 17.0f;
+  draw_panel_box(draw_list, position, ImVec2(width, height));
+
+  const ImVec2 title_size = ImGui::CalcTextSize("Aimbot");
+  draw_list->AddText(ImVec2(position.x + 8.0f, position.y + 7.0f), ImGui::GetColorU32(cat_menu::k_text), "Aimbot");
+  draw_list->AddText(
+    ImVec2(position.x + 8.0f + title_size.x, position.y + 7.0f),
+    state.attack_ready ? ImGui::GetColorU32(cat_menu::k_accent) : IM_COL32(255, 150, 0, 255),
+    " debug");
+
+  const ImU32 value_color = state.attack_ready
+    ? ImGui::GetColorU32(cat_menu::k_accent)
+    : IM_COL32(255, 150, 0, 255);
+  float row_y = position.y + 31.0f;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "reason", aimbot_debug_reason_name(state.reason), value_color);
+  row_y += row_height;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "target", std::to_string(state.selected_entity_index) + " hb " + std::to_string(state.selected_hitbox), value_color);
+  row_y += row_height;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "trace", std::to_string(state.trace_entity_index) + " hb " + std::to_string(state.trace_hitbox), value_color);
+  row_y += row_height;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "candidates", std::to_string(state.candidates_visible) + "/" + std::to_string(state.candidates_total) + " reject " + std::to_string(state.candidates_rejected), value_color);
+  row_y += row_height;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "scope/head", std::string(bool_text(state.scoped_ready)) + " / " + bool_text(state.headshot_ready), value_color);
+  row_y += row_height;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "spread", format_float(state.spread, "%.4f") + (state.spread_compensated ? " comp" : ""), value_color);
+  row_y += row_height;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "pellet", std::to_string(state.pellet_index) + " / " + std::to_string(state.pellet_count), value_color);
+  row_y += row_height;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "tick/fov", std::to_string(state.tick_count) + " / " + format_float(state.fov, "%.2f"), value_color);
 }
 
 inline void draw_random_crits_section(ImDrawList* draw_list, const ImVec2 position)
@@ -653,6 +710,9 @@ static void draw_game_indicators()
       break;
     case section_kind::spectators:
       draw_spectator_section(draw_list, section.position);
+      break;
+    case section_kind::aimbot_debug:
+      draw_aimbot_debug_section(draw_list, section.position);
       break;
     }
   }

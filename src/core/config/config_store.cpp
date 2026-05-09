@@ -180,6 +180,10 @@ void config_store::import_config(const Config& config)
     set_float("aimbot.assist_strength", config.aimbot.assist_strength);
     set_bool("aimbot.draw_fov", config.aimbot.draw_fov);
     set_bool("aimbot.shoot_through_glass", config.aimbot.shoot_through_glass);
+    set_bool("aimbot.spread_compensation", config.aimbot.spread_compensation);
+    set_bool("aimbot.debug_overlay", config.aimbot.debug_overlay);
+    set_float("aimbot.debug_overlay_x", config.aimbot.debug_overlay_x);
+    set_float("aimbot.debug_overlay_y", config.aimbot.debug_overlay_y);
     set_int("aimbot.hitscan_hitboxes", static_cast<int>(config.aimbot.hitscan_hitboxes));
     set_int("aimbot.melee_hitboxes", static_cast<int>(config.aimbot.melee_hitboxes));
     set_bool("aimbot.melee_walk_to_target", config.aimbot.melee_walk_to_target);
@@ -505,6 +509,10 @@ void config_store::export_config(Config& config) const
         100.0f);
     config.aimbot.draw_fov = get_bool("aimbot.draw_fov", config.aimbot.draw_fov);
     config.aimbot.shoot_through_glass = get_bool("aimbot.shoot_through_glass", config.aimbot.shoot_through_glass);
+    config.aimbot.spread_compensation = get_bool("aimbot.spread_compensation", config.aimbot.spread_compensation);
+    config.aimbot.debug_overlay = get_bool("aimbot.debug_overlay", config.aimbot.debug_overlay);
+    config.aimbot.debug_overlay_x = get_float("aimbot.debug_overlay_x", config.aimbot.debug_overlay_x);
+    config.aimbot.debug_overlay_y = get_float("aimbot.debug_overlay_y", config.aimbot.debug_overlay_y);
     config.aimbot.hitscan_hitboxes = static_cast<uint32_t>(get_int("aimbot.hitscan_hitboxes", static_cast<int>(config.aimbot.hitscan_hitboxes)));
     config.aimbot.melee_hitboxes = static_cast<uint32_t>(get_int("aimbot.melee_hitboxes", static_cast<int>(config.aimbot.melee_hitboxes)));
     config.aimbot.melee_walk_to_target = get_bool("aimbot.melee_walk_to_target", config.aimbot.melee_walk_to_target);

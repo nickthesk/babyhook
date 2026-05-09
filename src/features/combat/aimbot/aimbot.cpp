@@ -21,9 +21,11 @@ V  o o  V  file: src/features/combat/aimbot/aimbot.cpp
 #include "aimbot.hpp"
 
 #include "MD5/MD5.hpp"
+#include "core/shared/sigs.hpp"
 #include "games/tf2/sdk/interfaces/engine.hpp"
 #include "games/tf2/sdk/interfaces/entity_list.hpp"
 #include "games/tf2/sdk/interfaces/prediction.hpp"
+#include "libsigscan/libsigscan.h"
 
 #include "features/automation/nographics/nographics.hpp"
 
@@ -44,10 +46,36 @@ float g_aimbot_walk_last_progress_time = 0.0f;
 
 using aimbot_random_seed_fn = void (*)(int);
 using aimbot_random_float_fn = float (*)(float, float);
+using aimbot_get_bullet_spread_fn = float (*)(void*);
 
 aimbot_random_seed_fn aimbot_random_seed = nullptr;
 aimbot_random_float_fn aimbot_random_float = nullptr;
+aimbot_get_bullet_spread_fn aimbot_get_bullet_spread = nullptr;
 bool aimbot_random_initialized = false;
+bool aimbot_bullet_spread_initialized = false;
+bool aimbot_bullet_spread_signature_found = false;
+
+struct aimbot_scan_debug_stats {
+  int candidates_total = 0;
+  int candidates_visible = 0;
+  int candidates_rejected = 0;
+};
+
+struct aimbot_hitscan_fire_solution {
+  bool ready = false;
+  bool spread_compensated = false;
+  bool spread_signature = false;
+  bool spread_fixed = false;
+  bool seed_missing = false;
+  int pellet_count = 0;
+  int pellet_index = -1;
+  int trace_hitbox = -1;
+  int trace_entity_index = -1;
+  float spread = 0.0f;
+  Vec3 command_angles{};
+};
+
+aimbot_scan_debug_stats g_aimbot_scan_debug{};
 
 float aimbot_actual_frame_time();
 
@@ -69,6 +97,155 @@ bool aimbot_init_random()
   aimbot_random_seed = reinterpret_cast<aimbot_random_seed_fn>(dlsym(RTLD_DEFAULT, "RandomSeed"));
   aimbot_random_float = reinterpret_cast<aimbot_random_float_fn>(dlsym(RTLD_DEFAULT, "RandomFloat"));
   return aimbot_random_seed != nullptr && aimbot_random_float != nullptr;
+}
+
+bool aimbot_init_bullet_spread()
+{
+  if (aimbot_bullet_spread_initialized) {
+    return aimbot_get_bullet_spread != nullptr;
+  }
+
+  aimbot_bullet_spread_initialized = true;
+  aimbot_get_bullet_spread = reinterpret_cast<aimbot_get_bullet_spread_fn>(
+    sigscan_module("client.so", sigs::tf_weapon_base_gun_get_bullet_spread));
+  aimbot_bullet_spread_signature_found = aimbot_get_bullet_spread != nullptr;
+  return aimbot_get_bullet_spread != nullptr;
+}
+
+float aimbot_weapon_hitscan_spread(Weapon* weapon)
+{
+  if (weapon == nullptr || aimbot_is_projectile_weapon(weapon) || aimbot_is_melee_weapon(weapon)) {
+    return 0.0f;
+  }
+
+  if (aimbot_init_bullet_spread()) {
+    const float spread = aimbot_get_bullet_spread(weapon);
+    if (std::isfinite(spread) && spread > 0.0f) {
+      return std::clamp(spread, 0.0f, 1.0f);
+    }
+  }
+
+  return weapon->get_hitscan_spread();
+}
+
+bool aimbot_fixed_weapon_spreads_enabled()
+{
+  if (convar_system == nullptr) {
+    return false;
+  }
+
+  static Convar* fixed_weapon_spreads = convar_system->find_var("tf_use_fixed_weaponspreads");
+  return fixed_weapon_spreads != nullptr && fixed_weapon_spreads->get_int() != 0;
+}
+
+bool aimbot_hitscan_spread_offset(user_cmd* user_cmd,
+  int pellet_index,
+  float spread,
+  Vec3* offset_out)
+{
+  if (offset_out == nullptr) {
+    return false;
+  }
+
+  *offset_out = {};
+  if (user_cmd == nullptr || user_cmd->command_number <= 0 || spread <= 0.0f) {
+    return true;
+  }
+
+  if (!aimbot_init_random()) {
+    return false;
+  }
+
+  const int command_seed = MD5_PseudoRandom(static_cast<unsigned int>(user_cmd->command_number)) & INT_MAX;
+  aimbot_random_seed(command_seed + std::max(0, pellet_index));
+  constexpr float spread_scale = 0.5f;
+  offset_out->x = (aimbot_random_float(-spread_scale, spread_scale) + aimbot_random_float(-spread_scale, spread_scale)) * spread;
+  offset_out->y = (aimbot_random_float(-spread_scale, spread_scale) + aimbot_random_float(-spread_scale, spread_scale)) * spread;
+  return true;
+}
+
+Vec3 aimbot_compensate_hitscan_spread(Player* localplayer,
+  const Vec3& desired_command_angles,
+  const Vec3& spread_offset)
+{
+  if (localplayer == nullptr) {
+    return desired_command_angles;
+  }
+
+  const Vec3 desired_bullet_angles = hitscan_aim_bullet_angles(localplayer, desired_command_angles);
+  Vec3 adjusted_bullet_angles = desired_bullet_angles;
+  for (int iteration = 0; iteration < 2; ++iteration) {
+    Vec3 forward{};
+    Vec3 right{};
+    Vec3 up{};
+    angle_vectors(adjusted_bullet_angles, &forward, &right, &up);
+    Vec3 spread_direction = local_prediction_normalize(
+      forward + (right * spread_offset.x) + (up * spread_offset.y));
+    if (!aimbot_vec3_is_finite(spread_direction)) {
+      break;
+    }
+
+    const Vec3 spread_angles = local_prediction_direction_to_angles(spread_direction);
+    const Vec3 error = aimbot_normalize_angle_delta(spread_angles, desired_bullet_angles);
+    adjusted_bullet_angles = aimbot_clamp_angles(adjusted_bullet_angles - error);
+  }
+
+  return aimbot_clamp_angles(hitscan_aim_command_angles(localplayer, adjusted_bullet_angles));
+}
+
+aimbot_hitscan_fire_solution aimbot_prepare_hitscan_fire_solution(Player* localplayer,
+  Weapon* weapon,
+  user_cmd* user_cmd,
+  const aimbot_candidate& candidate,
+  const Vec3& command_view_angles)
+{
+  aimbot_hitscan_fire_solution solution{};
+  solution.command_angles = command_view_angles;
+  solution.spread_signature = aimbot_bullet_spread_signature_found;
+  if (localplayer == nullptr || weapon == nullptr || user_cmd == nullptr || candidate.entity == nullptr) {
+    return solution;
+  }
+
+  const float spread = aimbot_weapon_hitscan_spread(weapon);
+  const bool use_spread = config.aimbot.spread_compensation && spread > 0.00001f;
+  const int pellet_count = use_spread ? std::max(1, weapon->get_bullets_per_shot()) : 1;
+  solution.spread = spread;
+  solution.pellet_count = pellet_count;
+  solution.spread_signature = aimbot_bullet_spread_signature_found;
+  solution.spread_fixed = use_spread && aimbot_fixed_weapon_spreads_enabled();
+
+  for (int pellet_index = 0; pellet_index < pellet_count; ++pellet_index) {
+    Vec3 spread_offset{};
+    if (use_spread && !aimbot_hitscan_spread_offset(user_cmd, pellet_index, spread, &spread_offset)) {
+      solution.seed_missing = true;
+      break;
+    }
+
+    const Vec3 trace_angles = use_spread
+      ? aimbot_compensate_hitscan_spread(localplayer, command_view_angles, spread_offset)
+      : command_view_angles;
+
+    hitscan_aim_trace_result trace_result{};
+    if (!hitscan_aim_trace_candidate(
+        localplayer,
+        candidate,
+        trace_angles,
+        spread_offset,
+        use_spread,
+        &trace_result)) {
+      continue;
+    }
+
+    solution.ready = true;
+    solution.command_angles = trace_angles;
+    solution.spread_compensated = use_spread;
+    solution.pellet_index = use_spread ? pellet_index : -1;
+    solution.trace_hitbox = trace_result.hitbox;
+    solution.trace_entity_index = trace_result.entity != nullptr ? trace_result.entity->get_index() : -1;
+    return solution;
+  }
+
+  return solution;
 }
 
 uint32_t aimbot_crc32_process_byte(uint32_t crc, uint8_t value)
@@ -635,14 +812,17 @@ static aimbot_candidate aimbot_find_hitscan_candidate(Player* localplayer,
 
 static aimbot_candidate aimbot_find_best_candidate(Player* localplayer, Weapon* weapon, user_cmd* user_cmd, const Vec3& original_view_angles) {
   aimbot_candidate best_candidate{};
+  g_aimbot_scan_debug = {};
 
   if (aimbot_is_projectile_weapon(weapon)) {
     best_candidate = aimbot_find_best_projectile_candidate(localplayer, weapon, user_cmd, original_view_angles);
   } else {
     const bool relaxed_hitscan_selection = !aimbot_is_melee_weapon(weapon) && aimbot_should_relax_final_trace();
-    for (Entity* entity : entity_cache[class_id::PLAYER]) {
-      Player* player = static_cast<Player*>(entity);
+    for (const entity_cache_player_entry& entry : entity_cache_players()) {
+      Player* player = entry.player;
+      ++g_aimbot_scan_debug.candidates_total;
       if (aimbot_should_skip_player(localplayer, player)) {
+        ++g_aimbot_scan_debug.candidates_rejected;
         continue;
       }
 
@@ -659,10 +839,16 @@ static aimbot_candidate aimbot_find_best_candidate(Player* localplayer, Weapon* 
       }
 
       if (candidate.entity == nullptr) {
+        ++g_aimbot_scan_debug.candidates_rejected;
         continue;
       }
 
+      if (candidate.visible) {
+        ++g_aimbot_scan_debug.candidates_visible;
+      }
+
       if (!candidate.visible || !aimbot_fov_within_limit(candidate.fov, candidate.preferred ? 1.35f : 1.0f)) {
+        ++g_aimbot_scan_debug.candidates_rejected;
         continue;
       }
 
@@ -686,8 +872,8 @@ static aimbot_candidate aimbot_find_best_scope_candidate(Player* localplayer, We
     return best_candidate;
   }
 
-  for (Entity* entity : entity_cache[class_id::PLAYER]) {
-    Player* player = static_cast<Player*>(entity);
+  for (const entity_cache_player_entry& entry : entity_cache_players()) {
+    Player* player = entry.player;
     if (aimbot_should_skip_player(localplayer, player)) {
       continue;
     }
@@ -707,21 +893,6 @@ static aimbot_candidate aimbot_find_best_scope_candidate(Player* localplayer, We
   }
 
   return best_candidate;
-}
-
-static bool aimbot_hitscan_solution_ready(Player* localplayer,
-  const aimbot_candidate& candidate,
-  const Vec3& command_view_angles,
-  bool visible_steering) {
-  if (candidate.entity == nullptr) {
-    return false;
-  }
-
-  if (!visible_steering && candidate.visible) {
-    return true;
-  }
-
-  return hitscan_aim_trace_candidate(localplayer, candidate, command_view_angles);
 }
 
 static bool aimbot_projectile_solution_ready(Player* localplayer,
@@ -792,6 +963,15 @@ static bool aimbot_projectile_solution_ready(Player* localplayer,
 bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
   g_aimbot_requested_shot = false;
   const Vec3 source_view_angles = original_view_angles;
+  aimbot_debug_state debug_state{};
+  debug_state.active = config.aimbot.master;
+  debug_state.aim_mode = static_cast<int>(config.aimbot.aim_mode);
+  const auto finish_aimbot = [&](aimbot_debug_reason reason, bool use_psilent) -> bool {
+    debug_state.reason = reason;
+    debug_state.requested_shot = g_aimbot_requested_shot;
+    aimbot_debug_set_state(debug_state);
+    return use_psilent;
+  };
 
   if (!config.aimbot.master) {
     target_player = nullptr;
@@ -800,7 +980,7 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     reset_autoscope_scope_state();
     reset_aimbot_scope_timing();
     reset_aimbot_input_history();
-    return false;
+    return finish_aimbot(aimbot_debug_reason::disabled, false);
   }
 
   Player* localplayer = entity_list->get_localplayer();
@@ -810,7 +990,7 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     reset_autoscope_scope_state();
     reset_aimbot_scope_timing();
     reset_aimbot_input_history();
-    return false;
+    return finish_aimbot(aimbot_debug_reason::no_localplayer, false);
   }
 
   update_aimbot_scope_timing(localplayer);
@@ -822,15 +1002,16 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     reset_autoscope_scope_state();
     reset_aimbot_scope_timing();
     store_aimbot_input_angles(source_view_angles);
-    return false;
+    return finish_aimbot(aimbot_debug_reason::no_weapon, false);
   }
+  debug_state.weapon_def_id = weapon->get_def_id();
 
-  if (std::find(entity_cache[class_id::PLAYER].begin(), entity_cache[class_id::PLAYER].end(), target_player) == entity_cache[class_id::PLAYER].end()) {
+  if (!entity_cache_snapshot_contains_player(target_player)) {
     target_player = nullptr;
   }
 
   if (aimbot_preference.preferred_target != nullptr &&
-      std::find(entity_cache[class_id::PLAYER].begin(), entity_cache[class_id::PLAYER].end(), aimbot_preference.preferred_target) == entity_cache[class_id::PLAYER].end()) {
+      !entity_cache_snapshot_contains_player(aimbot_preference.preferred_target)) {
     clear_aimbot_preference();
   }
 
@@ -844,6 +1025,16 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     : aimbot_find_best_scope_candidate(localplayer, weapon, source_view_angles);
   target_entity = best_candidate.entity;
   target_player = best_candidate.player;
+  debug_state.candidates_total = g_aimbot_scan_debug.candidates_total;
+  debug_state.candidates_visible = g_aimbot_scan_debug.candidates_visible;
+  debug_state.candidates_rejected = g_aimbot_scan_debug.candidates_rejected;
+  if (best_candidate.entity != nullptr) {
+    debug_state.selected_entity_index = best_candidate.entity->get_index();
+    debug_state.selected_hitbox = best_candidate.hitbox;
+    debug_state.fov = best_candidate.fov;
+    debug_state.distance = best_candidate.distance;
+    debug_state.tick_count = best_candidate.tick_count;
+  }
 
   if (aimbot_should_auto_unscope(localplayer, weapon, scope_candidate)) {
     user_cmd->buttons |= IN_ATTACK2;
@@ -855,39 +1046,48 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
 
   if (!aimbot_use_key_active()) {
     store_aimbot_input_angles(source_view_angles);
-    return false;
+    return finish_aimbot(aimbot_debug_reason::use_key_inactive, false);
   }
 
   if (aimbot_should_auto_scope(localplayer, weapon, scope_candidate)) {
     user_cmd->buttons |= IN_ATTACK2;
+    user_cmd->buttons &= ~IN_ATTACK;
     store_aimbot_input_angles(source_view_angles);
-    return false;
+    return finish_aimbot(aimbot_debug_reason::auto_scope, false);
   }
 
   if (best_candidate.entity == nullptr) {
     aimbot_hold_projectile_charge_if_needed(user_cmd, weapon);
     store_aimbot_input_angles(source_view_angles);
-    return false;
+    return finish_aimbot(aimbot_debug_reason::no_target, false);
   }
 
-  if (best_candidate.player != nullptr) {
-    set_aimbot_preference(best_candidate.player);
-  }
   user_cmd->buttons &= ~IN_RELOAD;
 
   if (aimbot_should_auto_rev(localplayer, weapon, best_candidate)) {
     user_cmd->buttons |= IN_ATTACK2;
+    user_cmd->buttons &= ~IN_ATTACK;
     store_aimbot_input_angles(source_view_angles);
-    return false;
+    return finish_aimbot(aimbot_debug_reason::auto_rev, false);
   }
 
   aimbot_request_walk_to_target(localplayer, weapon, best_candidate);
 
   const bool scoped_only_ready = aimbot_scoped_only_ready(localplayer, weapon);
+  debug_state.scoped = localplayer->is_scoped();
+  debug_state.scoped_ready = scoped_only_ready;
   if (!aimbot_weapon_can_attack_or_release_projectile(localplayer, weapon) || !scoped_only_ready) {
+    if (!scoped_only_ready || (!aimbot_is_projectile_weapon(weapon) && !aimbot_is_melee_weapon(weapon))) {
+      user_cmd->buttons &= ~IN_ATTACK;
+    }
+    if (!scoped_only_ready && best_candidate.player != nullptr && aimbot_preference.preferred_target == best_candidate.player) {
+      clear_aimbot_preference();
+    }
     aimbot_hold_projectile_charge_if_needed(user_cmd, weapon);
     store_aimbot_input_angles(source_view_angles);
-    return false;
+    return finish_aimbot(
+      scoped_only_ready ? aimbot_debug_reason::attack_not_ready : aimbot_debug_reason::scoped_only,
+      false);
   }
 
   Vec3 target_view_angles = best_candidate.aim_angles - localplayer->get_punch_angles();
@@ -907,8 +1107,33 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
   const bool relaxed_final_trace = aimbot_should_relax_final_trace();
   const bool visible_steering = aimbot_mode_uses_visible_steering();
   const bool hitscan_solution = !aimbot_is_projectile_weapon(weapon) && !aimbot_is_melee_weapon(weapon);
-  const bool hitscan_ready = !hitscan_solution ||
-    aimbot_hitscan_solution_ready(localplayer, best_candidate, user_cmd->view_angles, visible_steering);
+  aimbot_hitscan_fire_solution hitscan_fire_solution{};
+  if (hitscan_solution) {
+    hitscan_fire_solution = aimbot_prepare_hitscan_fire_solution(
+      localplayer,
+      weapon,
+      user_cmd,
+      best_candidate,
+      user_cmd->view_angles);
+    if (hitscan_fire_solution.ready) {
+      user_cmd->view_angles = hitscan_fire_solution.command_angles;
+      best_candidate.command_angles = hitscan_fire_solution.command_angles;
+      best_candidate.spread_compensated = hitscan_fire_solution.spread_compensated;
+      best_candidate.pellet_index = hitscan_fire_solution.pellet_index;
+      best_candidate.pellet_count = hitscan_fire_solution.pellet_count;
+      best_candidate.spread = hitscan_fire_solution.spread;
+    }
+  }
+  debug_state.final_trace_hit = !hitscan_solution || hitscan_fire_solution.ready;
+  debug_state.spread_compensated = hitscan_fire_solution.spread_compensated;
+  debug_state.spread_signature = hitscan_fire_solution.spread_signature;
+  debug_state.spread_fixed = hitscan_fire_solution.spread_fixed;
+  debug_state.spread = hitscan_fire_solution.spread;
+  debug_state.pellet_count = hitscan_fire_solution.pellet_count;
+  debug_state.pellet_index = hitscan_fire_solution.pellet_index;
+  debug_state.trace_hitbox = hitscan_fire_solution.trace_hitbox;
+  debug_state.trace_entity_index = hitscan_fire_solution.trace_entity_index;
+  const bool hitscan_ready = !hitscan_solution || hitscan_fire_solution.ready;
   const bool melee_solution = aimbot_is_melee_weapon(weapon);
   const bool relaxed_melee_ready = relaxed_final_trace &&
     ((best_candidate.player != nullptr && best_candidate.melee_has_prediction) ||
@@ -930,6 +1155,7 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
       aimbot_entity_melee_reachable(localplayer, weapon, best_candidate.entity, user_cmd->view_angles));
 
   const bool headshot_ready = aimbot_wait_for_headshot_ready(localplayer, weapon, best_candidate);
+  debug_state.headshot_ready = headshot_ready;
   if (!headshot_ready) {
     user_cmd->buttons &= ~IN_ATTACK;
   }
@@ -954,8 +1180,20 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     melee_ready &&
     headshot_ready &&
     !(user_cmd->buttons & IN_ATTACK2);
+  debug_state.attack_ready = attack_ready;
+  if (!attack_ready && (hitscan_solution || melee_solution)) {
+    user_cmd->buttons &= ~IN_ATTACK;
+  }
   if (projectile_solution && !attack_ready) {
     aimbot_hold_projectile_charge_if_needed(user_cmd, weapon);
+  }
+  if (best_candidate.player != nullptr) {
+    if (attack_ready) {
+      set_aimbot_preference(best_candidate.player);
+    } else if (aimbot_preference.preferred_target == best_candidate.player &&
+        (hitscan_solution || !headshot_ready || !scoped_only_ready)) {
+      clear_aimbot_preference();
+    }
   }
   if (config.aimbot.auto_shoot && attack_ready) {
     g_aimbot_requested_shot = aimbot_apply_projectile_auto_shoot(user_cmd, weapon, projectile_solution);
@@ -965,8 +1203,9 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
       hitscan_solution &&
       best_candidate.player != nullptr &&
       (user_cmd->buttons & IN_ATTACK) != 0) {
-    user_cmd->tick_count = local_prediction_time_to_ticks(
-      best_candidate.player->get_simulation_time() + local_prediction_interp_time());
+    user_cmd->tick_count = best_candidate.tick_count > 0
+      ? best_candidate.tick_count
+      : local_prediction_time_to_ticks(best_candidate.player->get_simulation_time() + local_prediction_interp_time());
   }
 
   const bool projectile_charge_release =
@@ -980,7 +1219,18 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
 
   aimbot_apply_visible_view(user_cmd);
   store_aimbot_input_angles(source_view_angles);
-  return config.aimbot.aim_mode == Aim::AimMode::PSILENT;
+  aimbot_debug_reason final_reason = aimbot_debug_reason::attack_ready;
+  if (!headshot_ready) {
+    final_reason = aimbot_debug_reason::headshot_wait;
+  } else if (!hitscan_ready) {
+    final_reason = hitscan_fire_solution.seed_missing
+      ? aimbot_debug_reason::spread_seed_missing
+      : aimbot_debug_reason::final_trace_miss;
+  } else if (!attack_ready) {
+    final_reason = aimbot_debug_reason::attack_not_ready;
+  }
+
+  return finish_aimbot(final_reason, config.aimbot.aim_mode == Aim::AimMode::PSILENT);
 }
 
 bool aimbot_requested_shot() {

@@ -288,6 +288,8 @@ inline void register_builtin_targets() {
   register_target("aimbot.auto_shoot", "Auto shoot", &config.aimbot.auto_shoot);
   register_target("aimbot.draw_fov", "Draw FOV", &config.aimbot.draw_fov);
   register_target("aimbot.shoot_through_glass", "Shoot through glass", &config.aimbot.shoot_through_glass);
+  register_target("aimbot.spread_compensation", "Spread compensation", &config.aimbot.spread_compensation);
+  register_target("aimbot.debug_overlay", "Aimbot debug overlay", &config.aimbot.debug_overlay);
   register_target("aimbot.aim_mode", "Aim mode", reinterpret_cast<int*>(&config.aimbot.aim_mode));
   register_target("aimbot.fov", "Aim FOV", &config.aimbot.fov);
   register_target("aimbot.smooth_factor", "Smooth factor", &config.aimbot.smooth_factor);

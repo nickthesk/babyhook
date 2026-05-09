@@ -87,6 +87,10 @@ struct Aim {
   float assist_strength = 25.0f;
   bool draw_fov = false;
   bool shoot_through_glass = false;
+  bool spread_compensation = true;
+  bool debug_overlay = false;
+  float debug_overlay_x = 24.0f;
+  float debug_overlay_y = 326.0f;
 
   uint32_t hitscan_hitboxes = aim_hitbox_mask_default_hitscan;
   uint32_t melee_hitboxes = aim_hitbox_mask_default_melee;

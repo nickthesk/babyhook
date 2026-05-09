@@ -761,6 +761,7 @@ public:
   static constexpr int weapon_data_stride = 64;
   static constexpr int weapon_data_damage_offset = 0;
   static constexpr int weapon_data_bullets_per_shot_offset = 4;
+  static constexpr int weapon_data_spread_offset = 12;
   static constexpr int weapon_data_fire_delay_offset = 24;
   static constexpr int weapon_data_smack_delay_offset = 56;
   static constexpr int weapon_data_rapid_fire_offset = 60;
@@ -1262,6 +1263,24 @@ public:
     }
 
     return std::max(1, static_cast<int>(attribute_manager->attrib_hook_value(static_cast<float>(bullets), "mult_bullets_per_shot", to_entity())));
+  }
+
+  float get_hitscan_spread() {
+    const uintptr_t weapon_data = get_weapon_data();
+    if (weapon_data == 0 || is_melee()) {
+      return 0.0f;
+    }
+
+    float spread = *reinterpret_cast<float*>(weapon_data + weapon_data_spread_offset);
+    if (attribute_manager != nullptr) {
+      spread = attribute_manager->attrib_hook_value(spread, "mult_spread_scale", to_entity());
+    }
+
+    if (!std::isfinite(spread) || spread <= 0.0f) {
+      return 0.0f;
+    }
+
+    return std::clamp(spread, 0.0f, 1.0f);
   }
 
   float get_fire_rate() {

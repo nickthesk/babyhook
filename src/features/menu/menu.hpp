@@ -1295,11 +1295,13 @@ static void draw_aimbot_content() {
   };
 
   cat_menu::begin_flow_layout("aimbot_layout", 3);
-  cat_menu::flow_panel("Aimbot", 0, 200.0f, [&]() {
+  cat_menu::flow_panel("Aimbot", 0, 226.0f, [&]() {
     cat_menu::checkbox("Enable", &config.aimbot.master);
     cat_menu::checkbox("Auto shoot", &config.aimbot.auto_shoot);
     cat_menu::checkbox("Draw FOV", &config.aimbot.draw_fov);
     cat_menu::checkbox("Shoot through glass", &config.aimbot.shoot_through_glass);
+    cat_menu::checkbox("Spread compensation", &config.aimbot.spread_compensation);
+    cat_menu::checkbox("Debug overlay", &config.aimbot.debug_overlay);
     cat_menu::combo("Aim mode", (int*)&config.aimbot.aim_mode, aim_mode_items, IM_ARRAYSIZE(aim_mode_items));
     cat_menu::slider_float("Aim FOV", &config.aimbot.fov, 0.0f, 180.0f, "%.0f deg");
     cat_menu::slider_float("Smooth factor", &config.aimbot.smooth_factor, 1.0f, 30.0f, "%.1f");

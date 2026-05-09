@@ -18,6 +18,8 @@ V  o o  V  file: src/features/combat/aimbot/aim_utils.hpp
 #include <climits>
 #include <cstddef>
 
+#include "aimbot_debug.hpp"
+
 #include "core/entity_cache.hpp"
 #include "core/math/math.hpp"
 
@@ -42,6 +44,14 @@ struct aimbot_candidate {
   float fov = FLT_MAX;
   float distance = FLT_MAX;
   int health = 0;
+  float simulation_time = 0.0f;
+  int tick_count = 0;
+  Vec3 command_angles{};
+  bool spread_compensated = false;
+  int pellet_index = -1;
+  int pellet_count = 0;
+  float spread = 0.0f;
+  aimbot_debug_reason debug_reason = aimbot_debug_reason::none;
   bool visible = false;
   bool preferred = false;
   bool projectile_direct = false;
@@ -290,10 +300,6 @@ inline bool aimbot_headshot_ready_for_priority(Player* localplayer, Weapon* weap
   case TF_WEAPON_SNIPERRIFLE:
   case TF_WEAPON_SNIPERRIFLE_DECAP:
   case TF_WEAPON_SNIPERRIFLE_CLASSIC:
-    if (config.aimbot.wait_for_headshot) {
-      return true;
-    }
-
     if (weapon->can_fire_critical_shot(true)) {
       return true;
     }
@@ -319,8 +325,7 @@ inline bool aimbot_headshot_ready_for_priority(Player* localplayer, Weapon* weap
       return current_time - localplayer->get_fov_time() >= 0.2f;
     }
   case TF_WEAPON_REVOLVER:
-    return config.aimbot.wait_for_headshot ||
-      attribute_manager == nullptr ||
+    return attribute_manager == nullptr ||
       attribute_manager->attrib_hook_value(0, "set_weapon_mode", weapon->to_entity()) != 1 ||
       weapon->can_ambassador_headshot();
   default:
@@ -1036,8 +1041,6 @@ inline bool aimbot_wait_for_headshot_ready(Player* localplayer, Weapon* weapon, 
   switch (weapon->get_weapon_id()) {
   case TF_WEAPON_SNIPERRIFLE:
   case TF_WEAPON_SNIPERRIFLE_DECAP:
-    if (!localplayer->is_scoped()) return true;
-    return aimbot_sniper_headshot_ready(localplayer, weapon);
   case TF_WEAPON_SNIPERRIFLE_CLASSIC:
     return aimbot_sniper_headshot_ready(localplayer, weapon);
   case TF_WEAPON_REVOLVER:
