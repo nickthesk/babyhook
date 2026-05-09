@@ -14,6 +14,10 @@ V  o o  V  file: src/features/combat/aimbot/melee_aim.hpp
 
 #include "aim_utils.hpp"
 
+inline Vec3 melee_aim_offset_bounds(const Vec3& bounds, float offset) {
+  return Vec3{bounds.x + offset, bounds.y + offset, bounds.z + offset};
+}
+
 inline bool melee_aim_is_knife(Weapon* weapon) {
   if (weapon == nullptr) {
     return false;
@@ -97,39 +101,32 @@ inline bool melee_aim_segment_reaches_target(Player* target,
     return false;
   }
 
+  constexpr float player_origin_compression = 0.125f;
   const Vec3 hull{melee_hull, melee_hull, melee_hull};
-  const Vec3 target_mins = target->get_player_mins(target->is_ducking()) + target_origin - hull;
-  const Vec3 target_maxs = target->get_player_maxs(target->is_ducking()) + target_origin + hull;
-  Vec3 delta = end - start;
-  float enter = 0.0f;
-  float exit = 1.0f;
+  const Vec3 mins = melee_aim_offset_bounds(target->get_player_mins(target->is_ducking()), player_origin_compression);
+  const Vec3 maxs = melee_aim_offset_bounds(target->get_player_maxs(target->is_ducking()), -player_origin_compression);
+  const Vec3 target_mins = mins + target_origin - hull;
+  const Vec3 target_maxs = maxs + target_origin + hull;
+  return aimbot_segment_aabb_enter_fraction(start, end, target_mins, target_maxs, enter_fraction_out);
+}
 
-  const auto clip_axis = [&](float start_axis, float delta_axis, float min_axis, float max_axis) -> bool {
-    if (std::fabs(delta_axis) <= 0.0001f) {
-      return start_axis >= min_axis && start_axis <= max_axis;
-    }
-
-    const float inv_delta = 1.0f / delta_axis;
-    float t1 = (min_axis - start_axis) * inv_delta;
-    float t2 = (max_axis - start_axis) * inv_delta;
-    if (t1 > t2) {
-      std::swap(t1, t2);
-    }
-
-    enter = std::max(enter, t1);
-    exit = std::min(exit, t2);
-    return enter <= exit;
-  };
-
-  const bool intersects =
-    clip_axis(start.x, delta.x, target_mins.x, target_maxs.x) &&
-    clip_axis(start.y, delta.y, target_mins.y, target_maxs.y) &&
-    clip_axis(start.z, delta.z, target_mins.z, target_maxs.z);
-  if (intersects && enter_fraction_out != nullptr) {
-    *enter_fraction_out = std::clamp(enter, 0.0f, 1.0f);
-  }
-
-  return intersects;
+inline bool melee_aim_trace_clear_to_target(Player* localplayer,
+  Player* target,
+  const Vec3& start,
+  const Vec3& end,
+  const Vec3& hull_mins,
+  const Vec3& hull_maxs,
+  float target_enter_fraction,
+  bool* hit_target_out = nullptr) {
+  return aimbot_melee_trace_clear_to_entity(
+    localplayer,
+    target,
+    start,
+    end,
+    hull_mins,
+    hull_maxs,
+    target_enter_fraction,
+    hit_target_out);
 }
 
 inline bool melee_aim_trace_candidate(Player* localplayer,
@@ -153,29 +150,42 @@ inline bool melee_aim_trace_candidate(Player* localplayer,
     return false;
   }
 
-  Vec3 end = swing_start + (forward * melee_range);
-  float target_enter_fraction = 1.0f;
-  if (!melee_aim_segment_reaches_target(target, target_origin, swing_start, end, melee_hull, &target_enter_fraction)) {
+  const Vec3 end = swing_start + (forward * melee_range);
+  Vec3 zero_hull{};
+  float line_enter_fraction = 1.0f;
+  const bool line_reaches_target = melee_aim_segment_reaches_target(
+    target,
+    target_origin,
+    swing_start,
+    end,
+    0.0f,
+    &line_enter_fraction);
+  bool line_hit_target = false;
+  const bool line_clear_to_target = melee_aim_trace_clear_to_target(
+    localplayer,
+    target,
+    swing_start,
+    end,
+    zero_hull,
+    zero_hull,
+    line_reaches_target ? line_enter_fraction : 1.0f,
+    &line_hit_target);
+  if (line_hit_target || (line_reaches_target && line_clear_to_target)) {
+    return true;
+  }
+
+  if (!line_clear_to_target) {
     return false;
   }
 
-  Vec3 start = swing_start;
-  trace_filter filter{};
-  engine_trace->init_world_trace_filter(&filter);
-
-  ray_t ray = engine_trace->init_ray(&start, &end);
-  trace_t trace{};
-  engine_trace->trace_ray(&ray, MASK_SOLID, &filter, &trace);
-  if (trace.all_solid || trace.start_solid || trace.fraction + 0.001f < target_enter_fraction) {
+  float hull_enter_fraction = 1.0f;
+  if (!melee_aim_segment_reaches_target(target, target_origin, swing_start, end, melee_hull, &hull_enter_fraction)) {
     return false;
   }
 
   Vec3 hull_mins{-melee_hull, -melee_hull, -melee_hull};
   Vec3 hull_maxs{melee_hull, melee_hull, melee_hull};
-  ray = engine_trace->init_ray(&start, &end, &hull_mins, &hull_maxs);
-  trace = {};
-  engine_trace->trace_ray(&ray, MASK_SOLID, &filter, &trace);
-  return !trace.all_solid && !trace.start_solid && trace.fraction + 0.001f >= target_enter_fraction;
+  return melee_aim_trace_clear_to_target(localplayer, target, swing_start, end, hull_mins, hull_maxs, hull_enter_fraction);
 }
 
 inline bool melee_aim_trace_candidate(Player* localplayer,
@@ -218,11 +228,13 @@ inline aimbot_candidate melee_aim_find_candidate(Player* localplayer,
 
   Vec3 predicted_origin = target_path.positions.back();
   Vec3 swing_start = melee_aim_local_swing_start(localplayer, impact_time);
+  const Vec3 mins = player->get_player_mins(player->is_ducking());
+  const Vec3 maxs = player->get_player_maxs(player->is_ducking());
   Vec3 hitbox_offset = point.position - player->get_origin();
   Vec3 target_positions[] = {
     predicted_origin + hitbox_offset,
     melee_aim_player_center(player, predicted_origin),
-    predicted_origin + Vec3{0.0f, 0.0f, std::clamp(swing_start.z - predicted_origin.z, player->get_player_mins(player->is_ducking()).z, player->get_player_maxs(player->is_ducking()).z)}
+    predicted_origin + Vec3{0.0f, 0.0f, std::clamp(swing_start.z - predicted_origin.z, mins.z, maxs.z)}
   };
 
   bool found_trace = false;

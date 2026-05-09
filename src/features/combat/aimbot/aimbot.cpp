@@ -801,7 +801,7 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
         user_cmd->view_angles)) ||
     (best_candidate.player == nullptr &&
       best_candidate.entity != nullptr &&
-      aimbot_entity_melee_reachable(localplayer, weapon, best_candidate.entity, best_candidate.aim_position, user_cmd->view_angles));
+      aimbot_entity_melee_reachable(localplayer, weapon, best_candidate.entity, user_cmd->view_angles));
 
   const bool headshot_ready = aimbot_wait_for_headshot_ready(localplayer, weapon, best_candidate);
   if (!headshot_ready) {

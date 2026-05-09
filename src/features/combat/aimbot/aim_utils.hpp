@@ -501,10 +501,11 @@ inline aimbot_point aimbot_find_best_point(Player* localplayer,
   return best_point;
 }
 
-inline bool aimbot_segment_intersects_aabb(const Vec3& start,
+inline bool aimbot_segment_aabb_enter_fraction(const Vec3& start,
   const Vec3& end,
   const Vec3& mins,
-  const Vec3& maxs) {
+  const Vec3& maxs,
+  float* enter_fraction_out = nullptr) {
   Vec3 delta = end - start;
   float enter = 0.0f;
   float exit = 1.0f;
@@ -526,9 +527,22 @@ inline bool aimbot_segment_intersects_aabb(const Vec3& start,
     return enter <= exit;
   };
 
-  return clip_axis(start.x, delta.x, mins.x, maxs.x) &&
-         clip_axis(start.y, delta.y, mins.y, maxs.y) &&
-         clip_axis(start.z, delta.z, mins.z, maxs.z);
+  const bool intersects =
+    clip_axis(start.x, delta.x, mins.x, maxs.x) &&
+    clip_axis(start.y, delta.y, mins.y, maxs.y) &&
+    clip_axis(start.z, delta.z, mins.z, maxs.z);
+  if (intersects && enter_fraction_out != nullptr) {
+    *enter_fraction_out = std::clamp(enter, 0.0f, 1.0f);
+  }
+
+  return intersects;
+}
+
+inline bool aimbot_segment_intersects_aabb(const Vec3& start,
+  const Vec3& end,
+  const Vec3& mins,
+  const Vec3& maxs) {
+  return aimbot_segment_aabb_enter_fraction(start, end, mins, maxs);
 }
 
 inline bool aimbot_is_repair_wrench(Weapon* weapon) {
@@ -609,7 +623,7 @@ inline float aimbot_get_melee_range(Player* localplayer, Weapon* weapon, Player*
     melee_range = 70.0f;
   }
 
-  return std::max(melee_range - 4.0f, 0.0f);
+  return std::isfinite(melee_range) ? std::max(melee_range, 0.0f) : 0.0f;
 }
 
 inline float aimbot_get_melee_hull(Player* localplayer, Weapon* weapon, Player* target) {
@@ -633,7 +647,47 @@ inline float aimbot_get_melee_hull(Player* localplayer, Weapon* weapon, Player* 
     melee_hull = 18.0f;
   }
 
-  return melee_hull;
+  return std::isfinite(melee_hull) ? std::max(melee_hull, 0.0f) : 0.0f;
+}
+
+inline bool aimbot_melee_trace_clear_to_entity(Player* localplayer,
+  Entity* target,
+  const Vec3& start,
+  const Vec3& end,
+  const Vec3& hull_mins,
+  const Vec3& hull_maxs,
+  float target_enter_fraction,
+  bool* hit_target_out = nullptr) {
+  if (localplayer == nullptr || target == nullptr || engine_trace == nullptr) {
+    return false;
+  }
+
+  if (hit_target_out != nullptr) {
+    *hit_target_out = false;
+  }
+
+  Vec3 trace_start = start;
+  Vec3 trace_end = end;
+  Vec3 trace_mins = hull_mins;
+  Vec3 trace_maxs = hull_maxs;
+  ray_t ray = engine_trace->init_ray(&trace_start, &trace_end, &trace_mins, &trace_maxs);
+  trace_filter filter{};
+  engine_trace->init_trace_filter(&filter, localplayer);
+
+  trace_t trace{};
+  engine_trace->trace_ray(&ray, MASK_SOLID, &filter, &trace);
+  if (trace.all_solid || trace.start_solid) {
+    return false;
+  }
+
+  if (trace.entity == target) {
+    if (hit_target_out != nullptr) {
+      *hit_target_out = true;
+    }
+    return true;
+  }
+
+  return trace.fraction >= 1.0f || trace.fraction + 0.001f >= target_enter_fraction;
 }
 
 inline bool aimbot_is_friendlyfire_enabled() {
@@ -779,7 +833,6 @@ inline int aimbot_entity_health(Entity* entity) {
 inline bool aimbot_entity_melee_reachable(Player* localplayer,
   Weapon* weapon,
   Entity* target,
-  const Vec3& aim_position,
   const Vec3& aim_angles) {
   if (localplayer == nullptr || weapon == nullptr || target == nullptr) {
     return false;
@@ -791,18 +844,52 @@ inline bool aimbot_entity_melee_reachable(Player* localplayer,
     return false;
   }
 
-  const float distance = distance_3d(localplayer->get_shoot_pos(), aim_position);
-  if (distance > melee_range + melee_hull) {
+  Vec3 start = localplayer->get_shoot_pos();
+  Vec3 forward = local_prediction_angles_to_direction(aim_angles);
+  if (!aimbot_vec3_is_finite(start) || !aimbot_vec3_is_finite(forward)) {
     return false;
   }
 
-  Vec3 start = localplayer->get_shoot_pos();
-  Vec3 forward = local_prediction_angles_to_direction(aim_angles);
   Vec3 end = start + (forward * melee_range);
-  Vec3 target_mins = target->get_collideable_mins() + target->get_collision_origin() - Vec3{melee_hull, melee_hull, melee_hull};
-  Vec3 target_maxs = target->get_collideable_maxs() + target->get_collision_origin() + Vec3{melee_hull, melee_hull, melee_hull};
+  Vec3 zero_hull{};
+  const Vec3 target_origin = target->get_collision_origin();
+  const Vec3 target_mins = target->get_collideable_mins() + target_origin;
+  const Vec3 target_maxs = target->get_collideable_maxs() + target_origin;
 
-  return aimbot_segment_intersects_aabb(start, end, target_mins, target_maxs);
+  float line_enter_fraction = 1.0f;
+  const bool line_reaches_target = aimbot_segment_aabb_enter_fraction(
+    start,
+    end,
+    target_mins,
+    target_maxs,
+    &line_enter_fraction);
+  bool line_hit_target = false;
+  const bool line_clear_to_target = aimbot_melee_trace_clear_to_entity(
+    localplayer,
+    target,
+    start,
+    end,
+    zero_hull,
+    zero_hull,
+    line_reaches_target ? line_enter_fraction : 1.0f,
+    &line_hit_target);
+  if (line_hit_target || (line_reaches_target && line_clear_to_target)) {
+    return true;
+  }
+
+  if (!line_clear_to_target) {
+    return false;
+  }
+
+  const Vec3 hull{melee_hull, melee_hull, melee_hull};
+  float hull_enter_fraction = 1.0f;
+  if (!aimbot_segment_aabb_enter_fraction(start, end, target_mins - hull, target_maxs + hull, &hull_enter_fraction)) {
+    return false;
+  }
+
+  Vec3 hull_mins{-melee_hull, -melee_hull, -melee_hull};
+  Vec3 hull_maxs{melee_hull, melee_hull, melee_hull};
+  return aimbot_melee_trace_clear_to_entity(localplayer, target, start, end, hull_mins, hull_maxs, hull_enter_fraction);
 }
 
 inline aimbot_candidate aimbot_find_non_player_candidate(Player* localplayer,
@@ -816,7 +903,7 @@ inline aimbot_candidate aimbot_find_non_player_candidate(Player* localplayer,
 
   const Vec3 target_position = aimbot_entity_target_position(entity);
   const Vec3 aim_angles = aimbot_calculate_angles_to_position(localplayer->get_shoot_pos(), target_position);
-  if (weapon->is_melee() && !aimbot_entity_melee_reachable(localplayer, weapon, entity, target_position, aim_angles)) {
+  if (weapon->is_melee() && !aimbot_entity_melee_reachable(localplayer, weapon, entity, aim_angles)) {
     return candidate;
   }
 
