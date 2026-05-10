@@ -27,6 +27,8 @@ Environment:
   CATHOOK_MODE_FILE=~/.config/cathook/mode
   CATHOOK_ROOT=/opt/cathook
   CATHOOK_DEV_MODE=1
+  CATHOOK_MAX_BUILD_GLIBC=2.39
+  CATHOOK_ALLOW_NEW_GLIBC=1
 EOF
 }
 
@@ -42,6 +44,80 @@ is_enabled() {
 
 is_dev_mode() {
     is_enabled "${CATHOOK_DEV_MODE:-${CAT_DEV_MODE:-0}}"
+}
+
+host_os_label() {
+    local name=""
+    local version=""
+    local pretty_name=""
+
+    if [ -r /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        name="${NAME:-${ID:-unknown Linux}}"
+        version="${VERSION_ID:-}"
+        pretty_name="${PRETTY_NAME:-}"
+    fi
+
+    if [ -n "$pretty_name" ]; then
+        printf '%s\n' "$pretty_name"
+    elif [ -n "$version" ]; then
+        printf '%s %s\n' "$name" "$version"
+    else
+        printf '%s\n' "${name:-unknown Linux}"
+    fi
+}
+
+host_glibc_version() {
+    local version_line=""
+
+    if command -v getconf >/dev/null 2>&1; then
+        version_line="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+        version_line="${version_line#glibc }"
+        if [ -n "$version_line" ]; then
+            printf '%s\n' "$version_line"
+            return
+        fi
+    fi
+
+    if command -v ldd >/dev/null 2>&1; then
+        ldd --version 2>/dev/null | sed -n '1s/.* //p' | grep -E '^[0-9]+([.][0-9]+)*$' | head -n 1
+    fi
+}
+
+version_greater_than() {
+    local lhs="$1"
+    local rhs="$2"
+
+    [ "$lhs" != "$rhs" ] && [ "$(printf '%s\n%s\n' "$rhs" "$lhs" | sort -V | tail -n 1)" = "$lhs" ]
+}
+
+check_host_glibc_compatibility() {
+    local max_glibc="${CATHOOK_MAX_BUILD_GLIBC:-2.39}"
+    local glibc_version=""
+    local os_label=""
+
+    if is_enabled "${CATHOOK_ALLOW_NEW_GLIBC:-0}"; then
+        return
+    fi
+
+    glibc_version="$(host_glibc_version)"
+    os_label="$(host_os_label)"
+
+    if [ -z "$glibc_version" ]; then
+        echo "Warning: could not detect host glibc version on $os_label." >&2
+        echo "If injection later fails with GLIBC_x.y not found, rebuild on Ubuntu 24.04 or older." >&2
+        return
+    fi
+
+    echo "Build host: $os_label, glibc $glibc_version"
+
+    if version_greater_than "$glibc_version" "$max_glibc"; then
+        echo "Refusing to build/install on glibc $glibc_version; max supported build glibc is $max_glibc." >&2
+        echo "Binaries built on newer glibc can fail inside TF2's Steam Runtime with GLIBC_x.y not found." >&2
+        echo "Build on Ubuntu 24.04 or older, or set CATHOOK_ALLOW_NEW_GLIBC=1 to override." >&2
+        exit 1
+    fi
 }
 
 require_root_for_install() {
@@ -434,6 +510,7 @@ selected_mode="$(choose_build_mode)" || {
 }
 
 update_project_if_needed
+check_host_glibc_compatibility
 require_root_for_install
 # ensure_funchook
 build_cat "$selected_mode"
