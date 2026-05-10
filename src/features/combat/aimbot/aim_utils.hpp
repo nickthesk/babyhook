@@ -117,6 +117,22 @@ inline float aimbot_tracked_scoped_time(Player* localplayer) {
   return std::max(current_time - aimbot_scoped_begin_time, 0.0f);
 }
 
+inline bool aimbot_sniper_scope_time_ready(Player* localplayer) {
+  if (localplayer == nullptr || !localplayer->is_scoped() || localplayer->get_fov() >= localplayer->get_default_fov()) {
+    return false;
+  }
+
+  constexpr float sniper_headshot_scope_delay = 0.2f;
+  if (aimbot_tracked_scoped_time(localplayer) >= sniper_headshot_scope_delay) {
+    return true;
+  }
+
+  const float current_time = global_vars != nullptr
+    ? global_vars->curtime
+    : localplayer->get_tickbase() * static_cast<float>(TICK_INTERVAL);
+  return current_time - localplayer->get_fov_time() >= sniper_headshot_scope_delay;
+}
+
 inline float aimbot_distance_squared(const Vec3& left, const Vec3& right) {
   const Vec3 delta = left - right;
   return (delta.x * delta.x) + (delta.y * delta.y) + (delta.z * delta.z);
@@ -299,14 +315,7 @@ inline bool aimbot_headshot_ready_for_priority(Player* localplayer, Weapon* weap
     return false;
   }
 
-  switch (weapon->get_weapon_id()) {
-  case TF_WEAPON_SNIPERRIFLE:
-  case TF_WEAPON_SNIPERRIFLE_DECAP:
-  case TF_WEAPON_SNIPERRIFLE_CLASSIC:
-    if (weapon->can_fire_critical_shot(true)) {
-      return true;
-    }
-
+  if (weapon->is_sniper_rifle()) {
     if (attribute_manager != nullptr && attribute_manager->attrib_hook_value(0, "sniper_no_headshot_without_full_charge", weapon->to_entity()) != 0) {
       return weapon->get_charged_damage() >= 150.0f;
     }
@@ -315,18 +324,10 @@ inline bool aimbot_headshot_ready_for_priority(Player* localplayer, Weapon* weap
       return true;
     }
 
-    if (!localplayer->is_scoped() || localplayer->get_fov() >= localplayer->get_default_fov()) {
-      return false;
-    }
+    return aimbot_sniper_scope_time_ready(localplayer);
+  }
 
-    if (aimbot_tracked_scoped_time(localplayer) >= 0.2f) {
-      return true;
-    }
-
-    {
-      const float current_time = global_vars != nullptr ? global_vars->curtime : localplayer->get_tickbase() * TICK_INTERVAL;
-      return current_time - localplayer->get_fov_time() >= 0.2f;
-    }
+  switch (weapon->get_weapon_id()) {
   case TF_WEAPON_REVOLVER:
     return attribute_manager == nullptr ||
       attribute_manager->attrib_hook_value(0, "set_weapon_mode", weapon->to_entity()) != 1 ||
@@ -1019,17 +1020,7 @@ inline bool aimbot_use_key_active() {
 }
 
 inline bool aimbot_is_scoped_hitscan_rifle(Weapon* weapon) {
-  if (weapon == nullptr) {
-    return false;
-  }
-
-  switch (weapon->get_weapon_id()) {
-  case TF_WEAPON_SNIPERRIFLE:
-  case TF_WEAPON_SNIPERRIFLE_DECAP:
-    return true;
-  default:
-    return false;
-  }
+  return weapon != nullptr && weapon->is_sniper_rifle();
 }
 
 inline bool aimbot_weapon_requires_scope(Weapon* weapon) {
@@ -1063,10 +1054,6 @@ inline bool aimbot_sniper_headshot_ready(Player* localplayer, Weapon* weapon) {
     return false;
   }
 
-  if (weapon->can_fire_critical_shot(true)) {
-    return true;
-  }
-
   if (attribute_manager != nullptr && attribute_manager->attrib_hook_value(0, "sniper_no_headshot_without_full_charge", weapon->to_entity()) != 0) {
     return weapon->get_charged_damage() >= 150.0f;
   }
@@ -1075,27 +1062,18 @@ inline bool aimbot_sniper_headshot_ready(Player* localplayer, Weapon* weapon) {
     return true;
   }
 
-  if (!localplayer->is_scoped() || localplayer->get_fov() >= localplayer->get_default_fov()) {
-    return false;
-  }
-
-  if (aimbot_tracked_scoped_time(localplayer) >= 0.2f) {
-    return true;
-  }
-
-  const float current_time = global_vars != nullptr ? global_vars->curtime : localplayer->get_tickbase() * TICK_INTERVAL;
-  return current_time - localplayer->get_fov_time() >= 0.2f;
+  return aimbot_sniper_scope_time_ready(localplayer);
 }
 
 inline bool aimbot_wait_for_headshot_ready(Player* localplayer, Weapon* weapon, const aimbot_candidate& candidate) {
   if (!config.aimbot.wait_for_headshot || localplayer == nullptr || weapon == nullptr) return true;
   if (candidate.player == nullptr || !weapon->is_headshot_weapon()) return true;
 
-  switch (weapon->get_weapon_id()) {
-  case TF_WEAPON_SNIPERRIFLE:
-  case TF_WEAPON_SNIPERRIFLE_DECAP:
-  case TF_WEAPON_SNIPERRIFLE_CLASSIC:
+  if (weapon->is_sniper_rifle()) {
     return aimbot_sniper_headshot_ready(localplayer, weapon);
+  }
+
+  switch (weapon->get_weapon_id()) {
   case TF_WEAPON_REVOLVER:
     return attribute_manager == nullptr ||
       attribute_manager->attrib_hook_value(0, "set_weapon_mode", weapon->to_entity()) != 1 ||
