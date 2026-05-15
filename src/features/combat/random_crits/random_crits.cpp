@@ -375,7 +375,7 @@ void apply_command_number(user_cmd* cmd, int host_sequence_number, Weapon* weapo
 
 } // namespace
 
-void run(user_cmd* cmd, int host_sequence_number)
+void run(user_cmd* cmd, int host_sequence_number, bool user_requested_primary_attack)
 {
   if (cmd != nullptr && host_sequence_number > 0) {
     indicator_command_number.store(host_sequence_number, std::memory_order_relaxed);
@@ -383,7 +383,8 @@ void run(user_cmd* cmd, int host_sequence_number)
 
   clear_selection();
 
-  if (cmd == nullptr || host_sequence_number <= 0 || (cmd->buttons & IN_ATTACK) == 0) {
+  const bool primary_attack = (cmd != nullptr && (cmd->buttons & IN_ATTACK) != 0) || user_requested_primary_attack;
+  if (cmd == nullptr || host_sequence_number <= 0 || !primary_attack) {
     return;
   }
 
@@ -423,12 +424,19 @@ void run(user_cmd* cmd, int host_sequence_number)
     const int seed = MD5_PseudoRandom(static_cast<unsigned int>(matched_sequence)) & INT_MAX;
     const int roll = crit_roll(localplayer, weapon, seed);
     apply_command_number(cmd, host_sequence_number, weapon, roll, force_crit ? selected_mode::force : selected_mode::skip);
+    if (force_crit && user_requested_primary_attack) {
+      cmd->buttons |= IN_ATTACK;
+    }
     return;
   }
 
-  if (force_crit && bucket_info.rapid_fire) {
+  // `find_command_number` will (most likely) fail when `weapon->current_seed()` matches the masked cmd seed
+  if (force_crit) {
     const int roll = crit_roll(localplayer, weapon, cmd->random_seed);
     apply_command_number(cmd, host_sequence_number, weapon, roll, selected_mode::force);
+    if (user_requested_primary_attack) {
+      cmd->buttons |= IN_ATTACK;
+    }
     return;
   }
 
@@ -522,6 +530,10 @@ indicator_state get_indicator_state()
     if (command_number != 0) {
       const int seed = MD5_PseudoRandom(static_cast<unsigned int>(command_number)) & INT_MAX;
       state.next_crit_seed_offset = std::max(0, command_number - current_command_number);
+      state.next_crit_seed_roll = crit_roll(localplayer, weapon, seed);
+    } else if (state.force_mode || (config.random_crits.always_melee_crit && state.melee_weapon)) {
+      const int seed = MD5_PseudoRandom(static_cast<unsigned int>(current_command_number)) & INT_MAX;
+      state.next_crit_seed_offset = 0;
       state.next_crit_seed_roll = crit_roll(localplayer, weapon, seed);
     }
   }

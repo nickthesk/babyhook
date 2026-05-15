@@ -1444,9 +1444,9 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
   }
 
   if (attack_ready &&
-      hitscan_solution &&
       best_candidate.player != nullptr &&
-      ((user_cmd->buttons & IN_ATTACK) != 0 || auto_shoot_result.release_attack)) {
+      ((user_cmd->buttons & IN_ATTACK) != 0 || auto_shoot_result.release_attack) &&
+      (hitscan_solution || melee_solution)) {
     user_cmd->tick_count = best_candidate.tick_count > 0
       ? best_candidate.tick_count
       : local_prediction_time_to_ticks(best_candidate.player->get_simulation_time() + local_prediction_interp_time());

@@ -281,6 +281,8 @@ inline aimbot_candidate melee_aim_find_candidate(Player* localplayer,
   candidate.melee_impact_time = target_path.start_time + impact_time;
   candidate.melee_swing_start = swing_start;
   candidate.melee_target_origin = predicted_origin;
+  candidate.simulation_time = player->get_simulation_time();
+  candidate.tick_count = local_prediction_time_to_ticks(candidate.simulation_time + local_prediction_interp_time());
   return candidate;
 }
 

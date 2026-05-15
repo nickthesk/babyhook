@@ -27,6 +27,7 @@ V  o o  V  file: src/features/automation/navbot/navbot_controller.cpp
 #include "games/tf2/sdk/entities/entity.hpp"
 #include "games/tf2/sdk/entities/player.hpp"
 #include "games/tf2/sdk/entities/weapon.hpp"
+#include "games/tf2/sdk/interfaces/client.hpp"
 #include "games/tf2/sdk/interfaces/engine.hpp"
 #include "games/tf2/sdk/interfaces/entity_list.hpp"
 #include "games/tf2/sdk/interfaces/game_event_manager.hpp"
@@ -43,6 +44,49 @@ navbot_controller* global_controller = nullptr;
 constexpr float goal_refresh_interval = 1.0f;
 constexpr float path_retry_interval = 1.0f;
 constexpr float weapon_switch_interval = 0.35f;
+constexpr float navbot_throwable_look_suppress_seconds = 0.55f;
+static float g_navbot_throwable_look_suppress_until = -1.0e9f;
+
+bool navbot_weapon_is_arc_throwable(Weapon* weapon)
+{
+  if (weapon == nullptr)
+  {
+    return false;
+  }
+
+  switch (weapon->get_def_id())
+  {
+  case Scout_s_MadMilk:
+  case Scout_s_MutatedMilk:
+  case Sniper_s_Jarate:
+  case Sniper_s_FestiveJarate:
+  case Scout_s_TheFlyingGuillotine:
+  case Scout_s_TheFlyingGuillotineG:
+    return true;
+  default:
+    return false;
+  }
+}
+
+void navbot_update_throwable_look_suppress(Weapon* weapon, user_cmd* user_cmd, float current_time)
+{
+  if (user_cmd == nullptr)
+  {
+    return;
+  }
+
+  if ((user_cmd->buttons & IN_ATTACK2) != 0 && navbot_weapon_is_arc_throwable(weapon))
+  {
+    g_navbot_throwable_look_suppress_until = std::max(
+      g_navbot_throwable_look_suppress_until,
+      current_time + navbot_throwable_look_suppress_seconds);
+  }
+}
+
+bool navbot_throwable_look_suppresses_path_look(float current_time)
+{
+  return current_time < g_navbot_throwable_look_suppress_until;
+}
 
 enum class navbot_weapon_slot
 {
@@ -1037,7 +1081,8 @@ void navbot_controller::on_create_move(user_cmd* user_cmd)
   auto follow_result = follower_.tick(mesh_, localplayer, user_cmd, current_time);
   debug_state_.has_active_path = follower_.has_path();
   debug_state_.active_crumb_count = static_cast<uint32_t>(follower_.crumbs().size());
-  if (config.misc.automation.navbot_look_at_path)
+  navbot_update_throwable_look_suppress(localplayer->get_weapon(), user_cmd, current_time);
+  if (config.misc.automation.navbot_look_at_path && !navbot_throwable_look_suppresses_path_look(current_time))
   {
     auto current_crumb = follower_.current_crumb();
     if (current_crumb != nullptr)
