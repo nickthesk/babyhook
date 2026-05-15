@@ -58,7 +58,7 @@ struct indicator_state
   int next_crit_seed_roll = -1;
 };
 
-void run(user_cmd* cmd);
+void run(user_cmd* cmd, int host_sequence_number);
 bool should_force_attack(Weapon* weapon, user_cmd* cmd);
 bool should_skip_attack(Weapon* weapon, user_cmd* cmd);
 indicator_state get_indicator_state();

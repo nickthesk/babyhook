@@ -203,7 +203,7 @@ void client_create_move_hook(void* me, int sequence_number, float input_sample_f
   }
 
   if (!medic_automation::controller().should_suppress_random_crits()) {
-    random_crits::run(user_cmd);
+    random_crits::run(user_cmd, sequence_number);
   }
   tickbase::on_create_move(user_cmd);
   anti_aim::on_create_move(user_cmd);

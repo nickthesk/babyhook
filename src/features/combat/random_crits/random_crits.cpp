@@ -18,8 +18,6 @@ V  o o  V  file: src/features/combat/random_crits/random_crits.cpp
 #include <cmath>
 #include <cstdint>
 
-#include <dlfcn.h>
-
 #include "MD5/MD5.hpp"
 #include "features/menu/config.hpp"
 #include "games/tf2/sdk/entities/player.hpp"
@@ -58,27 +56,12 @@ enum class selected_mode {
 
 selected_mode mode = selected_mode::none;
 
-using tier0_random_seed_fn = void (*)(int);
-using tier0_random_int_fn = int (*)(int, int);
-
-tier0_random_seed_fn g_tier0_random_seed = nullptr;
-tier0_random_int_fn g_tier0_random_int = nullptr;
-bool g_tier0_random_resolved = false;
-
-bool resolve_tier0_random()
+int crit_roll_isolated(int masked)
 {
-  if (g_tier0_random_resolved) {
-    return g_tier0_random_seed != nullptr && g_tier0_random_int != nullptr;
-  }
-
-  g_tier0_random_resolved = true;
-  g_tier0_random_seed = reinterpret_cast<tier0_random_seed_fn>(dlsym(RTLD_DEFAULT, "RandomSeed"));
-  g_tier0_random_int = reinterpret_cast<tier0_random_int_fn>(dlsym(RTLD_DEFAULT, "RandomInt"));
-  if (g_tier0_random_seed == nullptr || g_tier0_random_int == nullptr) {
-    g_tier0_random_seed = reinterpret_cast<tier0_random_seed_fn>(dlsym(RTLD_DEFAULT, "_Z10RandomSeedi"));
-    g_tier0_random_int = reinterpret_cast<tier0_random_int_fn>(dlsym(RTLD_DEFAULT, "_Z10RandomIntii"));
-  }
-  return g_tier0_random_seed != nullptr && g_tier0_random_int != nullptr;
+  int stream = masked;
+  stream = stream * 214013 + 2531011;
+  const int r = (stream >> 16) & 0x7fff;
+  return r % weapon_random_range;
 }
 
 struct crit_bucket_info
@@ -318,15 +301,7 @@ int masked_crit_seed(Player* localplayer, Weapon* weapon, int seed)
 int crit_roll(Player* localplayer, Weapon* weapon, int seed)
 {
   const int masked = masked_crit_seed(localplayer, weapon, seed);
-  if (resolve_tier0_random()) {
-    g_tier0_random_seed(masked);
-    return g_tier0_random_int(0, weapon_random_range - 1);
-  }
-
-  int stream = masked;
-  stream = stream * 214013 + 2531011;
-  const int r = (stream >> 16) & 0x7fff;
-  return r % weapon_random_range;
+  return crit_roll_isolated(masked);
 }
 
 bool seed_matches(Player* localplayer, Weapon* weapon, int seed, bool want_crit, int roll)
@@ -346,18 +321,17 @@ bool seed_matches(Player* localplayer, Weapon* weapon, int seed, bool want_crit,
   return true;
 }
 
-int find_command_number(Player* localplayer, Weapon* weapon, int current_command_number, bool want_crit)
+int find_command_number(Player* localplayer, Weapon* weapon, int host_sequence_number, bool want_crit)
 {
-  const int seed_scan = std::clamp(config.random_crits.seed_scan, min_seed_scan, max_seed_scan);
+  if (host_sequence_number <= 0) {
+    return 0;
+  }
 
-  for (int offset = 0; offset <= seed_scan; ++offset) {
-    const int command_number = current_command_number + offset;
-    const int seed = MD5_PseudoRandom(static_cast<unsigned int>(command_number)) & INT_MAX;
-    const int roll = crit_roll(localplayer, weapon, seed);
+  const int seed = MD5_PseudoRandom(static_cast<unsigned int>(host_sequence_number)) & INT_MAX;
+  const int roll = crit_roll(localplayer, weapon, seed);
 
-    if (seed_matches(localplayer, weapon, seed, want_crit, roll)) {
-      return command_number;
-    }
+  if (seed_matches(localplayer, weapon, seed, want_crit, roll)) {
+    return host_sequence_number;
   }
 
   return 0;
@@ -386,32 +360,35 @@ void clear_selection()
   mode = selected_mode::none;
 }
 
-void apply_command_number(user_cmd* cmd, Weapon* weapon, int command_number, int roll, int offset, selected_mode new_mode)
+void apply_command_number(user_cmd* cmd, int host_sequence_number, Weapon* weapon, int roll, selected_mode new_mode)
 {
-  cmd->command_number = command_number;
-  cmd->random_seed = MD5_PseudoRandom(static_cast<unsigned int>(cmd->command_number)) & INT_MAX;
+  cmd->command_number = host_sequence_number;
+  cmd->random_seed = MD5_PseudoRandom(static_cast<unsigned int>(host_sequence_number)) & INT_MAX;
 
-  selected_command_number = cmd->command_number;
+  selected_command_number = host_sequence_number;
   selected_weapon = weapon;
   selected_seed = cmd->random_seed;
   selected_roll = roll;
-  selected_offset = offset;
+  selected_offset = 0;
   mode = new_mode;
 }
 
 } // namespace
 
-void run(user_cmd* cmd)
+void run(user_cmd* cmd, int host_sequence_number)
 {
-  if (cmd != nullptr && cmd->command_number > 0) {
-    indicator_command_number.store(cmd->command_number, std::memory_order_relaxed);
+  if (cmd != nullptr && host_sequence_number > 0) {
+    indicator_command_number.store(host_sequence_number, std::memory_order_relaxed);
   }
 
   clear_selection();
 
-  if (cmd == nullptr || (cmd->buttons & IN_ATTACK) == 0) {
+  if (cmd == nullptr || host_sequence_number <= 0 || (cmd->buttons & IN_ATTACK) == 0) {
     return;
   }
+
+  cmd->command_number = host_sequence_number;
+  cmd->random_seed = MD5_PseudoRandom(static_cast<unsigned int>(host_sequence_number)) & INT_MAX;
 
   auto* localplayer = entity_list->get_localplayer();
   if (localplayer == nullptr || !localplayer->is_alive() || localplayer->is_crit_boosted()) {
@@ -441,18 +418,17 @@ void run(user_cmd* cmd)
     return;
   }
 
-  const int command_number = find_command_number(localplayer, weapon, cmd->command_number, force_crit);
-  if (command_number != 0) {
-    const int old_command_number = cmd->command_number;
-    const int seed = MD5_PseudoRandom(static_cast<unsigned int>(command_number)) & INT_MAX;
+  const int matched_sequence = find_command_number(localplayer, weapon, host_sequence_number, force_crit);
+  if (matched_sequence != 0) {
+    const int seed = MD5_PseudoRandom(static_cast<unsigned int>(matched_sequence)) & INT_MAX;
     const int roll = crit_roll(localplayer, weapon, seed);
-    apply_command_number(cmd, weapon, command_number, roll, std::max(0, command_number - old_command_number), force_crit ? selected_mode::force : selected_mode::skip);
+    apply_command_number(cmd, host_sequence_number, weapon, roll, force_crit ? selected_mode::force : selected_mode::skip);
     return;
   }
 
   if (force_crit && bucket_info.rapid_fire) {
     const int roll = crit_roll(localplayer, weapon, cmd->random_seed);
-    apply_command_number(cmd, weapon, cmd->command_number, roll, 0, selected_mode::force);
+    apply_command_number(cmd, host_sequence_number, weapon, roll, selected_mode::force);
     return;
   }
 
