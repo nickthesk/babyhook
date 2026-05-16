@@ -409,6 +409,9 @@ function steam_boot_delay_allows_launch(time) {
     if (!STEAM_BOOT_DELAY)
         return true;
 
+    if (module.exports.currentlyBootingSteam > 0 && module.exports.currentlyBootingSteam < max_steam_boots())
+        return true;
+
     return module.exports.lastSteamBootTime + STEAM_BOOT_DELAY < time;
 }
 
