@@ -1299,17 +1299,23 @@ class Bot extends EventEmitter {
     }
 
     setSteamTf2LaunchOptions(steamid32, launch_options) {
+        let updated_count = 0;
         for (const config_path of this.steamLocalConfigPaths(steamid32)) {
             const root = fs.existsSync(config_path) ? parse_simple_vdf(fs.readFileSync(config_path, 'utf8')) : { UserLocalConfigStore: {} };
             set_vdf_path(root, ['UserLocalConfigStore', 'Software', 'Valve', 'Steam', 'apps', '440', 'LaunchOptions'], launch_options);
             fs.mkdirSync(path.dirname(config_path), { recursive: true });
             fs.writeFileSync(config_path, stringify_simple_vdf(root));
             this.log(`Updated Steam TF2 launch options in ${config_path}`);
-            return true;
+            ++updated_count;
         }
 
-        this.log('[ERROR] Could not find Steam localconfig.vdf to set TF2 launch options.');
-        return false;
+        if (!updated_count) {
+            this.log('[ERROR] Could not find Steam localconfig.vdf to set TF2 launch options.');
+            return false;
+        }
+
+        this.log(`Updated Steam TF2 launch options paths=${updated_count}`);
+        return true;
     }
 
     ensureVisibleXauthority() {
