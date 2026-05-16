@@ -29,10 +29,12 @@ const GAME_MODE_OPTIONS = TEXTMODE_GAME
     : '';
 const SHARED_STEAMAPPS = '/opt/steamapps';
 const CATHOOK_ATTACH_DELAY_SECONDS = Number.parseInt(process.env.CATHOOK_ATTACH_DELAY_SECONDS || '0', 10);
+const TF2_LAUNCH_MODE = (process.env.CAT_TF2_LAUNCH_MODE || 'direct').toLowerCase();
 
 const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
 const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +clientport 27006-27014'`
+const LAUNCH_OPTIONS_GAME_STEAM = `firejail --join=%JAILNAME% bash -c 'CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %STEAM% -applaunch 440 -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +clientport 27006-27014'`
 const GAME_LIBRARY_PATH = './bin:./bin/linux64:./tf/bin:./tf/bin/linux64:./platform:./platform/bin:./platform/bin/linux64:.';
 
 // Adjust these values as needed to optimize catbot performance
@@ -42,7 +44,7 @@ const STEAM_CLIENT_INITIALIZED_PATTERNS = [
     'Caching cursor image',
     'reaping pid:'
 ];
-const steam_client_initialized_game_delay_default_seconds = 30;
+const steam_client_initialized_game_delay_default_seconds = 0;
 const STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS || String(steam_client_initialized_game_delay_default_seconds), 10);
 const steam_client_initialized_game_delay = (Number.isFinite(STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE) ? Math.max(0, STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE) : steam_client_initialized_game_delay_default_seconds) * 1000;
 // How long to wait for the TF2 process to be created by firejail
@@ -53,7 +55,7 @@ const ipc_heartbeat_stale_timeout = Number.parseInt(process.env.CAT_IPC_STALE_SE
 const runtime_kill_grace_time = Number.parseInt(process.env.CAT_RUNTIME_KILL_GRACE_SECONDS || '8', 10) * 1000;
 // Time to wait for Steam to log in is configured in ch-settings.json. 0 disables it.
 const TIMEOUT_STEAM_ASSUME_READY = Number.parseInt(process.env.CAT_STEAM_READY_SECONDS || '0', 10) * 1000;
-const steam_logged_in_game_delay_default_seconds = 30;
+const steam_logged_in_game_delay_default_seconds = 0;
 const STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_LOGGED_IN_GAME_DELAY_SECONDS || String(steam_logged_in_game_delay_default_seconds), 10);
 const steam_logged_in_game_delay = (Number.isFinite(STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE) ? Math.max(0, STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE) : steam_logged_in_game_delay_default_seconds) * 1000;
 const STEAMWEBHELPER_CLEANUP_ENABLED = process.env.CAT_STEAMWEBHELPER_CLEANUP === '1' || config.steamwebhelper_cleanup === true;
@@ -1558,9 +1560,11 @@ class Bot extends EventEmitter {
 
         if (!this.time_steamLoggedIn) {
             this.time_steamLoggedIn = Date.now();
-            const delay_until = this.time_steamLoggedIn + steam_logged_in_game_delay;
-            this.time_steam_client_initialized_game_launch = Math.max(this.time_steam_client_initialized_game_launch || 0, delay_until);
-            this.log(`Steam logged in; delaying game launch for ${steam_logged_in_game_delay / 1000} seconds to let SteamAPI settle.`);
+            if (steam_logged_in_game_delay > 0) {
+                const delay_until = this.time_steamLoggedIn + steam_logged_in_game_delay;
+                this.time_steam_client_initialized_game_launch = Math.max(this.time_steam_client_initialized_game_launch || 0, delay_until);
+                this.log(`Steam logged in; delaying game launch for ${steam_logged_in_game_delay / 1000} seconds to let SteamAPI settle.`);
+            }
         }
 
         this.ensureSharedSteamapps();
@@ -1586,8 +1590,10 @@ class Bot extends EventEmitter {
         if (!this.steamClientInitialized) {
             const first_line = String(log_text || '').split(/\r?\n/).find((line) => line.trim()) || 'Steam client activity marker';
             this.log(`Steam client initialized marker seen: ${first_line.trim()}`);
-            this.time_steam_client_initialized_game_launch = Date.now() + steam_client_initialized_game_delay;
-            this.log(`Delaying game launch for ${steam_client_initialized_game_delay / 1000} seconds after Steam client initialized marker.`);
+            if (steam_client_initialized_game_delay > 0) {
+                this.time_steam_client_initialized_game_launch = Date.now() + steam_client_initialized_game_delay;
+                this.log(`Delaying game launch for ${steam_client_initialized_game_delay / 1000} seconds after Steam client initialized marker.`);
+            }
         }
 
         this.steamClientInitialized = true;
@@ -1905,10 +1911,12 @@ class Bot extends EventEmitter {
         }
 
         self.log(`Resolved SteamID32 ${steamid32} for ${self.account.login}`);
-        self.log(`Launching TF2 from ${game_launch_path} binary=${game_binary} source_library=${source_library} attach_delay_seconds=${CATHOOK_ATTACH_DELAY_SECONDS} preload=${game_preload}`);
-        self.procFirejailGame = child_process.spawn(LAUNCH_OPTIONS_GAME.replace("%GAMEPATH%", bash_double_quote_escape(game_launch_path))
+        const game_launch_options = TF2_LAUNCH_MODE === 'steam' ? LAUNCH_OPTIONS_GAME_STEAM : LAUNCH_OPTIONS_GAME;
+        self.log(`Launching TF2 mode=${TF2_LAUNCH_MODE} from ${game_launch_path} binary=${game_binary} source_library=${source_library} attach_delay_seconds=${CATHOOK_ATTACH_DELAY_SECONDS} preload=${game_preload}`);
+        self.procFirejailGame = child_process.spawn(game_launch_options.replace("%GAMEPATH%", bash_double_quote_escape(game_launch_path))
             .replace("%RUNTIME_PREFIX%", self.gameRuntimePrefix())
             .replace("%GAME_BINARY%", game_binary)
+            .replace("%STEAM%", self.steamLaunchCommand())
             .replace(/%CATHOOK_ROOT%/g, bash_double_quote_escape(CATHOOK_ROOT))
             .replace("%CATHOOK_ATTACH_DELAY_SECONDS%", String(CATHOOK_ATTACH_DELAY_SECONDS))
             .replace("%BOT_ID%", bash_double_quote_escape(String(self.botid)))
