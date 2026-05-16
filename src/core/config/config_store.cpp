@@ -485,6 +485,7 @@ void config_store::import_config(const Config& config)
     set_int("misc.automation.rq_if_players_lte", config.misc.automation.rq_if_players_lte);
     set_int("misc.automation.rq_if_players_gte", config.misc.automation.rq_if_players_gte);
     set_int("misc.automation.rq_if_ipc_bots_gt", config.misc.automation.rq_if_ipc_bots_gt);
+    set_bool("misc.automation.rq_if_no_navmesh", config.misc.automation.rq_if_no_navmesh);
     set_bool("misc.automation.rq_ignore_friends", config.misc.automation.rq_ignore_friends);
     set_int("misc.automation.requeue_action", static_cast<int>(config.misc.automation.requeue_action));
     set_bool("misc.automation.region_selector", config.misc.automation.region_selector);
@@ -1117,6 +1118,9 @@ void config_store::export_config(Config& config) const
         get_int("misc.automation.rq_if_ipc_bots_gt", config.misc.automation.rq_if_ipc_bots_gt),
         0,
         32);
+    config.misc.automation.rq_if_no_navmesh = get_bool(
+        "misc.automation.rq_if_no_navmesh",
+        config.misc.automation.rq_if_no_navmesh);
     config.misc.automation.rq_ignore_friends = get_bool(
         "misc.automation.rq_ignore_friends",
         config.misc.automation.rq_ignore_friends);

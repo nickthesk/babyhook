@@ -151,6 +151,12 @@ constexpr const char* overlay_mgr_load_overlays =
   "55 BE ? ? ? ? 48 89 E5 41 57 41 56 4C 8D B5 ? ? ? ? 41 55 41 54 53 48 81 EC ? ? ? ? 48 89 BD ? ? ? ? 4C 89 F7";
 constexpr const char* material_system_begin_frame =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 83 EC ? F3 0F 11 85 ? ? ? ?";
+constexpr const char* material_system_texture_load_bits =
+  "55 48 89 E5 41 57 41 56 49 89 FE 41 55 49 89 D5 31 D2 41 54 53 48 89 F3 48 83 EC 68 4C 8B 25 ? ? ? ? 48 C7 45 ? ? ? ? ? 49 8B 04 24 48 85 C0 74";
+constexpr const char* material_system_get_scratch_vtf_texture =
+  "48 8D 05 ? ? ? ? 55 48 89 E5 41 54 53 4C 8D 25 ? ? ? ? 48 8B 38 48 8B 07 FF 90 B8 04 00 00";
+constexpr const char* material_system_handle_file_load_failed_texture =
+  "55 41 B8 0C 00 00 00 B9 01 00 00 00 BA 20 00 00 00 48 89 E5 41 57 41 56 41 55 49 89 FD 41 54 49 89 F4";
 constexpr const char* particle_property_create =
   "55 48 89 E5 41 57 41 56 49 89 F6 41 55 41 54 53 48 89 FB 48 83 EC ? 48 8D 05 ? ? ? ? 89 55 ? 89 4D ? 66 0F D6 45 ?";
 constexpr const char* particle_system_precache =

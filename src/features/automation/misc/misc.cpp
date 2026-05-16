@@ -35,6 +35,7 @@ V  o o  V  file: src/features/automation/misc/misc.cpp
 #include "features/menu/config.hpp"
 #include "features/automation/autoitem/autoitem.hpp"
 #include "features/automation/nographics/nographics.hpp"
+#include "features/automation/navbot/navbot_mesh.hpp"
 
 #include "games/tf2/sdk/netvars.hpp"
 #include "games/tf2/sdk/entities/player.hpp"
@@ -812,6 +813,48 @@ bool should_trigger_player_threshold_requeue(int human_players)
 bool should_trigger_ipc_bot_threshold_requeue()
 {
   return cat_ipc::client::is_excess_ipc_bot_on_current_server(config.misc.automation.rq_if_ipc_bots_gt);
+}
+
+bool should_trigger_no_navmesh_requeue()
+{
+  static std::string no_navmesh_settle_map_watch{};
+  static float no_navmesh_missing_since_realtime = -1.0f;
+
+  const auto reset_no_navmesh_settle_watch = [&]() {
+    no_navmesh_settle_map_watch.clear();
+    no_navmesh_missing_since_realtime = -1.0f;
+  };
+
+  if (!config.misc.automation.rq_if_no_navmesh)
+  {
+    reset_no_navmesh_settle_watch();
+    return false;
+  }
+
+  if (engine == nullptr || !engine->is_in_game() || global_vars == nullptr)
+  {
+    reset_no_navmesh_settle_watch();
+    return false;
+  }
+
+  if (navbot::navmesh_resolves_for_current_map())
+  {
+    reset_no_navmesh_settle_watch();
+    return false;
+  }
+
+  constexpr float rq_if_no_navmesh_settle_seconds = 5.0f;
+  const char* raw_level = engine->get_level_name();
+  const std::string map_watch_key = raw_level != nullptr ? std::string(raw_level) : std::string{};
+
+  if (map_watch_key != no_navmesh_settle_map_watch)
+  {
+    no_navmesh_settle_map_watch = map_watch_key;
+    no_navmesh_missing_since_realtime = global_vars->realtime;
+    return false;
+  }
+
+  return (global_vars->realtime - no_navmesh_missing_since_realtime) >= rq_if_no_navmesh_settle_seconds;
 }
 
 const char* class_name_for_join(tf_class selected_class)
@@ -2034,15 +2077,18 @@ void automation_controller::run_queueing()
     const int loading_human_players = in_game ? count_requeue_players() : 0;
     const bool loading_player_threshold_requeue = in_game && should_trigger_player_threshold_requeue(loading_human_players);
     const bool loading_ipc_bot_threshold_requeue = in_game && should_trigger_ipc_bot_threshold_requeue();
-    const bool loading_requeue_conditions_met = loading_player_threshold_requeue || loading_ipc_bot_threshold_requeue;
+    const bool loading_no_navmesh_requeue = in_game && should_trigger_no_navmesh_requeue();
+    const bool loading_requeue_conditions_met =
+        loading_player_threshold_requeue || loading_ipc_bot_threshold_requeue || loading_no_navmesh_requeue;
 
     if (in_match_queue && !cancel_queue_requested && !loading_requeue_conditions_met)
     {
       log_queue_debug(
-        "loading screen active and rq_if requirements not met, leaving queued match group %u humans=%d ipc_excess=%d\n",
+        "loading screen active and rq_if requirements not met, leaving queued match group %u humans=%d ipc_excess=%d no_navmesh=%d\n",
         queue_mode,
         loading_human_players,
-        loading_ipc_bot_threshold_requeue ? 1 : 0);
+        loading_ipc_bot_threshold_requeue ? 1 : 0,
+        loading_no_navmesh_requeue ? 1 : 0);
       if (cancel_match_queue(party_client, queue_mode))
       {
         cancel_queue_requested = true;
@@ -2091,7 +2137,8 @@ void automation_controller::run_queueing()
   const int human_players = in_game ? count_requeue_players() : 0;
   const bool player_threshold_requeue = in_game && should_trigger_player_threshold_requeue(human_players);
   const bool ipc_bot_threshold_requeue = in_game && should_trigger_ipc_bot_threshold_requeue();
-  const bool threshold_requeue = player_threshold_requeue || ipc_bot_threshold_requeue;
+  const bool no_navmesh_requeue = in_game && should_trigger_no_navmesh_requeue();
+  const bool threshold_requeue = player_threshold_requeue || ipc_bot_threshold_requeue || no_navmesh_requeue;
 
   if (threshold_requeue)
   {
@@ -2101,9 +2148,10 @@ void automation_controller::run_queueing()
       {
         const bool used_abandon = abandon_current_match();
         log_queue_debug(
-          "rq_if hit (%d humans, ipc_excess=%d), leave_and_requeue lte=%d gte=%d ipc_gt=%d abandon=%d\n",
+          "rq_if hit (%d humans, ipc_excess=%d, no_navmesh=%d), leave_and_requeue lte=%d gte=%d ipc_gt=%d abandon=%d\n",
           human_players,
           ipc_bot_threshold_requeue ? 1 : 0,
+          no_navmesh_requeue ? 1 : 0,
           config.misc.automation.rq_if_players_lte,
           config.misc.automation.rq_if_players_gte,
           config.misc.automation.rq_if_ipc_bots_gt,
@@ -2167,9 +2215,10 @@ void automation_controller::run_queueing()
     if (!in_match_queue && global_vars->realtime >= next_queue_action_time_)
     {
       log_queue_debug(
-        "rq_if hit (%d humans, ipc_excess=%d), requesting rolling queue for match group %u\n",
+        "rq_if hit (%d humans, ipc_excess=%d, no_navmesh=%d), requesting rolling queue for match group %u\n",
         human_players,
         ipc_bot_threshold_requeue ? 1 : 0,
+        no_navmesh_requeue ? 1 : 0,
         queue_mode);
       if (request_match_queue(party_client, queue_mode))
       {

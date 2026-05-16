@@ -106,6 +106,8 @@ private:
   nav_mesh_cache cache_{};
 };
 
+[[nodiscard]] bool navmesh_resolves_for_current_map();
+
 } // namespace navbot
 
 #endif

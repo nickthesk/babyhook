@@ -19,7 +19,6 @@ namespace
 {
 
 constexpr int shared_object_created_event = 0;
-constexpr int shared_object_updated_event = 1;
 constexpr unsigned int tf_game_server_lobby_type = 2004;
 constexpr unsigned int tf_lobby_invite_type = 2008;
 constexpr int shared_object_type_vfunc_index = 2;
@@ -99,26 +98,34 @@ void join_matchmade_lobby(void* self)
   tf_gc_client_system_join_mm_match(self);
 }
 
+void call_original_so_event(void* self, void* shared_object, const int event_type)
+{
+  if (tf_gc_client_system_so_event_original == nullptr)
+  {
+    return;
+  }
+
+  tf_gc_client_system_so_event_original(self, shared_object, event_type);
+}
+
 } // namespace
 
 void tf_gc_client_system_so_event_hook(void* self, void* shared_object, const int event_type)
 {
   const unsigned int object_type = get_shared_object_type(shared_object);
+  const bool should_auto_join =
+    auto_casual_join_enabled() &&
+    event_type == shared_object_created_event;
 
-  if (tf_gc_client_system_so_event_original != nullptr)
-  {
-    tf_gc_client_system_so_event_original(self, shared_object, event_type);
-  }
-
-  if (!auto_casual_join_enabled() ||
-      (event_type != shared_object_created_event && event_type != shared_object_updated_event))
-  {
-    return;
-  }
-
-  if (object_type == tf_lobby_invite_type)
+  if (should_auto_join && object_type == tf_lobby_invite_type)
   {
     accept_lobby_invite(self, shared_object);
+  }
+
+  call_original_so_event(self, shared_object, event_type);
+
+  if (!should_auto_join)
+  {
     return;
   }
 

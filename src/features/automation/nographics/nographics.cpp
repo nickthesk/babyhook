@@ -30,6 +30,7 @@ V  o o  V  file: src/features/automation/nographics/nographics.cpp
 #include "games/tf2/sdk/interfaces/file_system.hpp"
 #include "games/tf2/sdk/interfaces/material_system.hpp"
 
+#include "funchook/funchook.h"
 #include "libsigscan/libsigscan.h"
 
 bool write_to_table(void** vtable, int index, void* func);
@@ -63,6 +64,9 @@ using open_fn = file_handle_t (*)(void*, const char*, const char*, const char*);
 using precache_fn = bool (*)(void*, const char*, const char*);
 using file_exists_fn = bool (*)(void*, const char*, const char*);
 using read_file_fn = bool (*)(void*, const char*, const char*, void*, int, int, void*);
+using texture_load_bits_fn = void* (*)(void*, const char*, char**);
+using get_scratch_vtf_texture_fn = void* (*)(void*);
+using handle_file_load_failed_texture_fn = void* (*)(void*, void*);
 
 find_first_fn find_first_original = nullptr;
 find_next_fn find_next_original = nullptr;
@@ -74,10 +78,16 @@ open_fn open_original = nullptr;
 precache_fn precache_original = nullptr;
 file_exists_fn file_exists_original = nullptr;
 read_file_fn read_file_original = nullptr;
+texture_load_bits_fn texture_load_bits_original = nullptr;
+get_scratch_vtf_texture_fn get_scratch_vtf_texture = nullptr;
+handle_file_load_failed_texture_fn handle_file_load_failed_texture = nullptr;
 
 void** file_system_vtable = nullptr;
 void** base_file_system_vtable = nullptr;
+funchook_t* texture_load_bits_funchook = nullptr;
 bool file_system_hooked = false;
+bool texture_load_bits_hooked = false;
+bool texture_load_bits_hook_failed = false;
 bool material_stub_enabled = false;
 bool render_patches_applied = false;
 bool optional_render_patches_applied = false;
@@ -303,8 +313,8 @@ bool is_required_model_asset(const std::string_view filename, const std::string_
 
 bool should_block_file(const char* raw_filename)
 {
-  constexpr std::array<std::string_view, 16> blocked_extensions = {
-    ".ani", ".wav", ".mp3", ".vvd", ".vtx", ".vtf", ".vfe", ".cache",
+  constexpr std::array<std::string_view, 15> blocked_extensions = {
+    ".ani", ".wav", ".mp3", ".vvd", ".vtx", ".vfe", ".cache",
     ".jpg", ".png", ".tga", ".dds", ".bik", ".webm", ".vcd", ".pcf",
   };
 
@@ -388,6 +398,17 @@ bool should_block_file(const char* raw_filename)
   }
 
   return false;
+}
+
+bool should_skip_texture_file(const char* raw_filename)
+{
+  if (raw_filename == nullptr)
+  {
+    return false;
+  }
+
+  const std::string_view filename{ raw_filename };
+  return path_equals(file_extension(filename), ".vtf");
 }
 
 template <typename function_type>
@@ -520,6 +541,20 @@ void add_files_to_cache_hook(void* this_ptr, file_cache_handle_t cache_id, const
     allowed_filenames.data(),
     static_cast<int>(allowed_filenames.size()),
     path_id);
+}
+
+void* texture_load_bits_hook(void* this_ptr, const char* cache_file_name, char** resolved_filename)
+{
+  if (should_skip_texture_file(cache_file_name) &&
+      get_scratch_vtf_texture != nullptr &&
+      handle_file_load_failed_texture != nullptr)
+  {
+    (void)resolved_filename;
+    void* scratch_texture = get_scratch_vtf_texture(this_ptr);
+    return handle_file_load_failed_texture(this_ptr, scratch_texture);
+  }
+
+  return texture_load_bits_original(this_ptr, cache_file_name, resolved_filename);
 }
 
 void* resolve_rip_target(std::uint8_t* instruction, int displacement_offset, int instruction_size)
@@ -901,6 +936,95 @@ void restore_render_patches()
 }
 
 void disable_file_system_hooks();
+void disable_texture_load_hook();
+
+void enable_texture_load_hook()
+{
+  if (texture_load_bits_hooked || texture_load_bits_hook_failed || !module_is_loaded("materialsystem.so"))
+  {
+    return;
+  }
+
+  texture_load_bits_original =
+    reinterpret_cast<texture_load_bits_fn>(sigscan_module("materialsystem.so", sigs::material_system_texture_load_bits));
+  get_scratch_vtf_texture =
+    reinterpret_cast<get_scratch_vtf_texture_fn>(sigscan_module("materialsystem.so", sigs::material_system_get_scratch_vtf_texture));
+  handle_file_load_failed_texture =
+    reinterpret_cast<handle_file_load_failed_texture_fn>(sigscan_module("materialsystem.so", sigs::material_system_handle_file_load_failed_texture));
+
+  if (texture_load_bits_original == nullptr ||
+      get_scratch_vtf_texture == nullptr ||
+      handle_file_load_failed_texture == nullptr)
+  {
+    texture_load_bits_hook_failed = true;
+    print("[nographics] texture load hook scan failed load=%p scratch=%p failed=%p\n",
+          reinterpret_cast<void*>(texture_load_bits_original),
+          reinterpret_cast<void*>(get_scratch_vtf_texture),
+          reinterpret_cast<void*>(handle_file_load_failed_texture));
+    return;
+  }
+
+  texture_load_bits_funchook = funchook_create();
+  if (texture_load_bits_funchook == nullptr)
+  {
+    texture_load_bits_hook_failed = true;
+    print("[nographics] texture load hook create failed\n");
+    return;
+  }
+
+  int result = funchook_prepare(
+    texture_load_bits_funchook,
+    reinterpret_cast<void**>(&texture_load_bits_original),
+    reinterpret_cast<void*>(texture_load_bits_hook));
+  if (result != 0)
+  {
+    texture_load_bits_hook_failed = true;
+    funchook_destroy(texture_load_bits_funchook);
+    texture_load_bits_funchook = nullptr;
+    texture_load_bits_original = nullptr;
+    print("[nographics] texture load hook prepare failed result=%d\n", result);
+    return;
+  }
+
+  result = funchook_install(texture_load_bits_funchook, 0);
+  if (result != 0)
+  {
+    texture_load_bits_hook_failed = true;
+    funchook_destroy(texture_load_bits_funchook);
+    texture_load_bits_funchook = nullptr;
+    texture_load_bits_original = nullptr;
+    print("[nographics] texture load hook install failed result=%d\n", result);
+    return;
+  }
+
+  texture_load_bits_hooked = true;
+  print("[nographics] texture load hook enabled\n");
+}
+
+void disable_texture_load_hook()
+{
+  if (texture_load_bits_funchook == nullptr)
+  {
+    texture_load_bits_hooked = false;
+    return;
+  }
+
+  if (texture_load_bits_hooked)
+  {
+    const int result = funchook_uninstall(texture_load_bits_funchook, 0);
+    if (result != 0)
+    {
+      print("[nographics] texture load hook uninstall failed result=%d\n", result);
+    }
+  }
+
+  funchook_destroy(texture_load_bits_funchook);
+  texture_load_bits_funchook = nullptr;
+  texture_load_bits_original = nullptr;
+  get_scratch_vtf_texture = nullptr;
+  handle_file_load_failed_texture = nullptr;
+  texture_load_bits_hooked = false;
+}
 
 void enable_file_system_hooks()
 {
@@ -1059,6 +1183,7 @@ void prepare_startup_patches()
 
     initialize();
     resolve_material_system_interface();
+    enable_texture_load_hook();
     enable_file_system_hooks();
     update_material_stub(true);
     apply_render_patches();
@@ -1096,6 +1221,7 @@ void update()
   const bool enabled = textmode_build || config.misc.exploits.null_graphics;
   if (enabled)
   {
+    enable_texture_load_hook();
     enable_file_system_hooks();
     update_material_stub(true);
     if (textmode_build || config.misc.exploits.null_graphics_render_stubs)
@@ -1111,6 +1237,7 @@ void update()
 
   restore_render_patches();
   update_material_stub(false);
+  disable_texture_load_hook();
   disable_file_system_hooks();
 }
 
@@ -1118,6 +1245,7 @@ void shutdown()
 {
   restore_render_patches();
   update_material_stub(false);
+  disable_texture_load_hook();
   disable_file_system_hooks();
 }
 

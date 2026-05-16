@@ -29,6 +29,7 @@ V  o o  V  file: src/features/automation/autoitem/autoitem.cpp
 #include "core/memory/byte_patch.hpp"
 #include "core/print.hpp"
 #include "core/shared/sigs.hpp"
+#include "features/automation/nographics/nographics.hpp"
 #include "features/menu/config.hpp"
 #include "games/tf2/sdk/entities/player.hpp"
 #include "games/tf2/sdk/interfaces/achievement_mgr.hpp"
@@ -54,6 +55,8 @@ constexpr int birthday_noisemaker_def = 536;
 constexpr int winter_noisemaker_def = 673;
 constexpr int fallback_attempt_limit = 3;
 constexpr int max_crafting_inputs = 12;
+constexpr int pending_pickup_ack_attempt_limit = 6;
+constexpr float pending_pickup_ack_retry_seconds = 0.5f;
 
 constexpr std::uintptr_t inventory_item_array_offset = 0x60;
 constexpr std::uintptr_t inventory_item_count_offset = 0x70;
@@ -67,12 +70,15 @@ constexpr std::uintptr_t crafting_panel_recipe_offset = 0x450;
 constexpr std::size_t crafting_panel_size = 0x4A0;
 constexpr std::uintptr_t crafting_ui_skip_patch_offset = 0x232;
 constexpr std::uint8_t crafting_ui_skip_patch[] = { 0xE9, 0x6B, 0x00, 0x00, 0x00 };
+constexpr int inventory_manager_get_local_inventory_index = 24;
+constexpr int inventory_manager_show_items_picked_up_index = 35;
 
 using get_first_item_of_item_def_fn = void* (*)(void*, int);
 using equip_item_in_loadout_fn = bool (*)(void*, int, int, std::uint64_t);
 using do_preview_item_fn = void (*)(void*, int);
 using craft_custom_fn = void (*)(void*);
 using get_local_inventory_fn = void* (*)(void*);
+using show_items_picked_up_fn = bool (*)(void*, bool, bool, bool);
 
 struct inventory_api
 {
@@ -101,6 +107,8 @@ inventory_api g_inventory_api{};
 float g_next_auto_item_time = 0.0f;
 std::array<fallback_state, 3> g_fallback_states{};
 int g_hat_rotation_offset = 0;
+int g_pending_pickup_ack_attempts = 0;
+float g_next_pending_pickup_ack_time = 0.0f;
 
 constexpr std::array<achievement_item, 41> achievement_items{{
   {45, 1036, "TF_SCOUT_ACHIEVE_PROGRESS1"},
@@ -357,7 +365,7 @@ void* get_local_inventory()
     return nullptr;
   }
 
-  auto call_get_local_inventory = reinterpret_cast<get_local_inventory_fn>(vtable[24]);
+  auto call_get_local_inventory = reinterpret_cast<get_local_inventory_fn>(vtable[inventory_manager_get_local_inventory_index]);
   if (call_get_local_inventory == nullptr)
   {
     return nullptr;
@@ -452,8 +460,84 @@ int corrected_loadout_slot(const int class_id, const int slot)
   return slot;
 }
 
+bool acknowledge_new_items_without_panel()
+{
+  initialize();
+  if (g_inventory_api.inventory_manager == nullptr)
+  {
+    return false;
+  }
+
+  auto** vtable = *reinterpret_cast<void***>(g_inventory_api.inventory_manager);
+  if (vtable == nullptr)
+  {
+    return false;
+  }
+
+  auto show_items_picked_up =
+    reinterpret_cast<show_items_picked_up_fn>(vtable[inventory_manager_show_items_picked_up_index]);
+  if (show_items_picked_up == nullptr)
+  {
+    return false;
+  }
+
+  debug_log("acknowledging new items without pickup panel\n");
+  return show_items_picked_up(g_inventory_api.inventory_manager, true, true, true);
+}
+
+void queue_pending_pickup_ack()
+{
+  if (!nographics::is_enabled())
+  {
+    return;
+  }
+
+  g_pending_pickup_ack_attempts = pending_pickup_ack_attempt_limit;
+  g_next_pending_pickup_ack_time = global_vars != nullptr
+    ? global_vars->realtime + pending_pickup_ack_retry_seconds
+    : 0.0f;
+}
+
+void process_pending_pickup_ack()
+{
+  if (g_pending_pickup_ack_attempts <= 0)
+  {
+    return;
+  }
+
+  if (!nographics::is_enabled())
+  {
+    g_pending_pickup_ack_attempts = 0;
+    g_next_pending_pickup_ack_time = 0.0f;
+    return;
+  }
+
+  if (global_vars == nullptr || global_vars->realtime < g_next_pending_pickup_ack_time)
+  {
+    return;
+  }
+
+  acknowledge_new_items_without_panel();
+  --g_pending_pickup_ack_attempts;
+  if (g_pending_pickup_ack_attempts > 0)
+  {
+    g_next_pending_pickup_ack_time = global_vars->realtime + pending_pickup_ack_retry_seconds;
+  }
+  else
+  {
+    g_next_pending_pickup_ack_time = 0.0f;
+  }
+}
+
 void trigger_new_item_notification()
 {
+  if (nographics::is_enabled())
+  {
+    acknowledge_new_items_without_panel();
+    queue_pending_pickup_ack();
+    return;
+  }
+
   if (engine != nullptr)
   {
     engine->client_cmd_unrestricted("cl_trigger_first_notification");
@@ -726,10 +810,21 @@ void on_create_move()
   if (!config.misc.automation.auto_item)
   {
     g_next_auto_item_time = 0.0f;
+  }
+
+  if (engine == nullptr || global_vars == nullptr || !engine->is_in_game())
+  {
     return;
   }
 
-  if (engine == nullptr || global_vars == nullptr || entity_list == nullptr || !engine->is_in_game())
+  process_pending_pickup_ack();
+
+  if (!config.misc.automation.auto_item)
+  {
+    return;
+  }
+
+  if (entity_list == nullptr)
   {
     return;
   }
@@ -802,6 +897,7 @@ bool rent_item(const int item_def_id)
 
   debug_log("requesting preview item def %d\n", item_def_id);
   g_inventory_api.do_preview_item(nullptr, item_def_id);
+  queue_pending_pickup_ack();
   return true;
 }
 
@@ -853,6 +949,7 @@ bool craft_items(const std::vector<int>& item_def_ids)
 
   g_inventory_api.craft_custom(panel.data());
   ui_skip_patch.restore();
+  queue_pending_pickup_ack();
   return true;
 }
 
@@ -875,6 +972,7 @@ bool unlock_achievement_by_id(const int achievement_id)
     stats->store_stats();
     stats->request_current_stats();
   }
+  queue_pending_pickup_ack();
   return true;
 }
 

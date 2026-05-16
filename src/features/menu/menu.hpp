@@ -1856,6 +1856,7 @@ static void draw_cat_bot_content() {
     cat_menu::slider_int("RQ if players <=", &config.misc.automation.rq_if_players_lte, 0, 32);
     cat_menu::slider_int("RQ if players >=", &config.misc.automation.rq_if_players_gte, 0, 32);
     cat_menu::slider_int("RQ if IPC bots >", &config.misc.automation.rq_if_ipc_bots_gt, 0, 32);
+    cat_menu::checkbox("RQ if no navmesh", &config.misc.automation.rq_if_no_navmesh);
     cat_menu::checkbox("RQ ignore friends", &config.misc.automation.rq_ignore_friends);
     cat_menu::combo("Requeue action", (int*)&config.misc.automation.requeue_action, requeue_action_items, IM_ARRAYSIZE(requeue_action_items));
   });
@@ -1962,6 +1963,7 @@ static void draw_queue_content() {
     cat_menu::slider_int("RQ if players <=", &config.misc.automation.rq_if_players_lte, 0, 32);
     cat_menu::slider_int("RQ if players >=", &config.misc.automation.rq_if_players_gte, 0, 32);
     cat_menu::slider_int("RQ if IPC bots >", &config.misc.automation.rq_if_ipc_bots_gt, 0, 32);
+    cat_menu::checkbox("RQ if no navmesh", &config.misc.automation.rq_if_no_navmesh);
     cat_menu::checkbox("RQ ignore friends", &config.misc.automation.rq_ignore_friends);
     cat_menu::combo("Requeue action", (int*)&config.misc.automation.requeue_action, requeue_action_items, IM_ARRAYSIZE(requeue_action_items));
   });

@@ -996,4 +996,21 @@ void navbot_mesh::rebuild_categories()
   }
 }
 
+bool navmesh_resolves_for_current_map()
+{
+  if (engine == nullptr || !engine->is_in_game())
+  {
+    return false;
+  }
+
+  const auto* raw_level_name = engine->get_level_name();
+  const std::string map_name = sanitize_map_name(raw_level_name);
+  if (map_name.empty())
+  {
+    return false;
+  }
+
+  return !resolve_nav_path(map_name).empty();
+}
+
 } // namespace navbot
