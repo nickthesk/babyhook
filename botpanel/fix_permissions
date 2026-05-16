@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -o pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
@@ -14,7 +14,7 @@ run_once=0
 
 usage() {
     cat <<'EOF'
-Usage: ./botpanel/fix_permissions [--once] [--interval SECONDS] [--quiet]
+Usage: ./botpanel/fix_permissions [--once] [--interval SECONDS] [-silent]
 
 Continuously repairs ownership and permissions for botpanel runtime paths.
 The first pass runs immediately; by default the script repeats every second.
@@ -65,6 +65,9 @@ parse_args() {
                 shift
                 ;;
             --quiet)
+                quiet=1
+                ;;
+            -silent | --silent)
                 quiet=1
                 ;;
             -h | --help)
@@ -214,6 +217,24 @@ EOF
 }
 
 fix_botpanel_executables() {
+    local executable_path
+
+    log "fixing botpanel executable bits"
+    for executable_path in \
+        "$script_dir/start" \
+        "$script_dir/stop" \
+        "$script_dir/update" \
+        "$script_dir/fix-oldshi" \
+        "$script_dir/fix_permissions" \
+        "$script_dir/install-catbots" \
+        "$script_dir/install-instances" \
+        "$script_dir/remove-legacy" \
+        "$script_dir/uninstall"; do
+        [ -e "$executable_path" ] || continue
+        run_as_root chown "$target_uid:$target_gid" "$executable_path" 2>/dev/null || true
+        run_as_root chmod 0755 "$executable_path" 2>/dev/null || true
+    done
+
     run_as_root find "$script_dir" -xdev -type f \( \
         -name "*.sh" -o \
         -name "start" -o \
@@ -233,6 +254,7 @@ fix_botpanel_executables() {
 fix_runtime_executables() {
     local runtime_dir
 
+    log "fixing runtime executable bits"
     for runtime_dir in \
         "$install_root/bin" \
         "$install_root/ipc/bin" \
@@ -251,6 +273,7 @@ fix_shared_libraries_in() {
     local root_path="$1"
 
     [ -d "$root_path" ] || return
+    log "fixing shared libraries under $root_path"
     run_as_root find "$root_path" -xdev -type f \( \
         -name "*.so" -o \
         -name "*.so.*" -o \
@@ -269,6 +292,7 @@ fix_steam_executables_in() {
     local steam_root="$1"
 
     [ -d "$steam_root" ] || return
+    log "fixing Steam executables under $steam_root"
     run_as_root find "$steam_root" -maxdepth 3 -type f \( \
         -name "steam" -o \
         -name "steam.sh" -o \
@@ -284,6 +308,7 @@ fix_tf2_executables_in() {
     local tf2_root="$1"
 
     [ -d "$tf2_root" ] || return
+    log "fixing TF2 executables and libraries under $tf2_root"
     run_as_root find "$tf2_root" -maxdepth 3 -type f \( \
         -name "tf_linux64" -o \
         -name "*.so" -o \
@@ -295,6 +320,7 @@ fix_tf2_executables_in() {
 fix_tmp_preload_libraries() {
     local preload_file
 
+    log "fixing temporary preload libraries"
     shopt -s nullglob
     for preload_file in /tmp/.gl*; do
         [ -f "$preload_file" ] || continue
@@ -393,11 +419,14 @@ fix_collected_executables() {
 }
 
 repair_once() {
+    log "starting repair pass"
+    fix_botpanel_executables
     collect_paths
     fix_collected_paths
     ensure_accounts_file
     fix_collected_executables
     ensure_accounts_file
+    log "repair pass done"
 }
 
 parse_args "$@"
@@ -422,7 +451,9 @@ resolve_target_identity
 log "target owner: $target_user ($target_uid:$target_gid), interval=${interval}s"
 
 while :; do
-    repair_once
+    if ! repair_once; then
+        log "repair pass failed; retrying in ${interval}s"
+    fi
     if [ "$run_once" = "1" ]; then
         exit 0
     fi

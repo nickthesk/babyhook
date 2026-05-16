@@ -42,7 +42,8 @@ matching xpra display first.
 runtime `.so` files including SDL/Steam API libraries, `/opt/steamapps`,
 detected Steam/TF2 paths, and `botpanel/accounts.txt` permissions. It runs once
 immediately and then every second; use `./botpanel/fix_permissions --once` for a
-single pass.
+single pass. It logs each repair pass by default; add `-silent` to suppress
+terminal output.
 
 `./botpanel/fix-oldshi` repairs old botpanel path layouts that created partial
 Steam directories or recursive `/opt/steamapps` symlinks. Stop the panel first;
