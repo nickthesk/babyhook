@@ -938,10 +938,11 @@ bool navbot_controller::should_block_pathing(Player* localplayer) const
 
   auto map_name = mesh_.map_name().empty() ? loaded_map_name_ : mesh_.map_name();
   auto on_cp_or_pl_map = map_has_cp_or_pl_prefix(map_name);
+  auto is_pipeline = map_name == "plr_pipeline";
   auto warmup_active = warmup_active_;
   auto local_team = localplayer->get_team();
-  auto setup_active = round_started_ && on_cp_or_pl_map && !setup_finished_;
-  auto match_fully_started = round_started_ && (!on_cp_or_pl_map || setup_finished_);
+  auto setup_active = round_started_ && on_cp_or_pl_map && !is_pipeline && !setup_finished_;
+  auto match_fully_started = round_started_ && (!on_cp_or_pl_map || is_pipeline || setup_finished_);
 
   if (local_team == tf_team::BLU && setup_active)
   {
