@@ -415,7 +415,8 @@ void run(user_cmd* cmd, int host_sequence_number, bool user_requested_primary_at
     }
   }
 
-  if (!force_crit && !config.random_crits.save_bucket) {
+  const bool save_bucket = config.debug.insider_settings_unlocked && config.random_crits.save_bucket;
+  if (!force_crit && !save_bucket) {
     return;
   }
 

@@ -23,7 +23,6 @@ void update();
 void shutdown();
 bool is_enabled();
 bool should_skip_rendering_hooks();
-bool should_use_aimbot_trace_fallback();
 
 } // namespace nographics
 

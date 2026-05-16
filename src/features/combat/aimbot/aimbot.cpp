@@ -28,7 +28,6 @@ V  o o  V  file: src/features/combat/aimbot/aimbot.cpp
 #include "games/tf2/sdk/interfaces/prediction.hpp"
 #include "libsigscan/libsigscan.h"
 
-#include "features/automation/nographics/nographics.hpp"
 #include "features/combat/backtrack/backtrack.hpp"
 
 #include "hitscan_aim.hpp"
@@ -941,15 +940,6 @@ void aimbot_request_walk_to_target(Player* localplayer, Weapon* weapon, const ai
 
 }
 
-static bool aimbot_should_relax_final_trace()
-{
-  if (nographics::should_use_aimbot_trace_fallback()) {
-    return true;
-  }
-
-  return aimbot_actual_frame_time() >= (1.0f / 30.0f);
-}
-
 static bool aimbot_weapon_allows_primary_fire(Player* localplayer, Weapon* weapon) {
   if (localplayer == nullptr || weapon == nullptr) {
     return false;
@@ -1050,7 +1040,6 @@ static aimbot_candidate aimbot_find_best_candidate(Player* localplayer, Weapon* 
     best_candidate = aimbot_find_best_projectile_candidate(localplayer, weapon, user_cmd, original_view_angles);
   } else {
     const bool hitscan_ready_selection = !aimbot_is_melee_weapon(weapon);
-    const bool relaxed_hitscan_selection = !aimbot_is_melee_weapon(weapon) && aimbot_should_relax_final_trace();
     for (const entity_cache_player_entry& entry : entity_cache_players()) {
       Player* player = entry.player;
       ++g_aimbot_scan_debug.candidates_total;
@@ -1068,7 +1057,7 @@ static aimbot_candidate aimbot_find_best_candidate(Player* localplayer, Weapon* 
           weapon,
           player,
           original_view_angles,
-          relaxed_hitscan_selection);
+          false);
         const aimbot_candidate backtrack_candidate = backtrack::find_hitscan_candidate(
           localplayer,
           weapon,
@@ -1363,7 +1352,6 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
   const Vec3 projectile_view_angles = projectile_solution
     ? aimbot_apply_projectile_random_compensation(localplayer, weapon, user_cmd, projectile_base_angles)
     : visual_view_angles;
-  const bool relaxed_final_trace = aimbot_should_relax_final_trace();
   const bool visible_steering = aimbot_mode_uses_visible_steering();
   const bool hitscan_solution = !aimbot_is_projectile_weapon(weapon) && !aimbot_is_melee_weapon(weapon);
   aimbot_hitscan_fire_solution hitscan_fire_solution{};
@@ -1393,12 +1381,8 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
   debug_state.trace_entity_index = hitscan_fire_solution.trace_entity_index;
   const bool hitscan_ready = !hitscan_solution || hitscan_fire_solution.ready;
   const bool melee_solution = aimbot_is_melee_weapon(weapon);
-  const bool relaxed_melee_ready = relaxed_final_trace &&
-    ((best_candidate.player != nullptr && best_candidate.melee_has_prediction) ||
-      (best_candidate.player == nullptr && best_candidate.entity != nullptr && best_candidate.visible));
   const bool melee_ready = !melee_solution ||
     (!visible_steering && best_candidate.visible) ||
-    relaxed_melee_ready ||
     (best_candidate.player != nullptr &&
       best_candidate.melee_has_prediction &&
       melee_aim_trace_candidate(

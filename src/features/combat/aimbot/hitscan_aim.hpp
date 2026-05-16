@@ -17,7 +17,6 @@ V  o o  V  file: src/features/combat/aimbot/hitscan_aim.hpp
 
 #include "aim_utils.hpp"
 
-#include "features/automation/nographics/nographics.hpp"
 #include "features/combat/backtrack/backtrack.hpp"
 
 struct hitscan_aim_bounds {
@@ -339,25 +338,6 @@ inline bool hitscan_aim_ray_hits_selected_area(Player* target,
     end_pos);
 }
 
-inline bool hitscan_aim_point_visible_by_fallback(Player* localplayer,
-  Player* player,
-  int hitbox_id,
-  const Vec3& point) {
-  if (!nographics::should_use_aimbot_trace_fallback() ||
-      localplayer == nullptr ||
-      player == nullptr ||
-      !aimbot_vec3_is_finite(point)) {
-    return false;
-  }
-
-  const Vec3 start_pos = localplayer->get_shoot_pos();
-  if (!aimbot_vec3_is_finite(start_pos) || !hitscan_aim_path_clear_to_target(localplayer, player, start_pos, point)) {
-    return false;
-  }
-
-  return hitscan_aim_ray_hits_selected_area(player, hitbox_id, start_pos, point);
-}
-
 inline bool hitscan_aim_point_valid_for_player(Player* player, const aimbot_point& point) {
   if (!point.valid || player == nullptr || point.hitbox < 0 || !aimbot_vec3_is_finite(point.position)) {
     return false;
@@ -367,64 +347,6 @@ inline bool hitscan_aim_point_valid_for_player(Player* player, const aimbot_poin
   const bool point_is_zero = aimbot_distance_squared(point.position, zero) <= 0.25f;
   const bool player_near_zero = aimbot_distance_squared(player->get_origin(), zero) <= (128.0f * 128.0f);
   return !point_is_zero || player_near_zero;
-}
-
-inline aimbot_point hitscan_aim_find_bounds_point(Player* localplayer,
-  Weapon* weapon,
-  Player* player,
-  const Vec3& bullet_view_angles,
-  uint32_t hitbox_mask,
-  bool require_visibility) {
-  aimbot_point best_point{};
-  const hitscan_aim_bounds bounds = hitscan_aim_get_player_bounds(player);
-  if (localplayer == nullptr || player == nullptr || !bounds.valid) {
-    return best_point;
-  }
-
-  const Vec3 shoot_pos = localplayer->get_shoot_pos();
-  constexpr int candidate_hitboxes[] = {
-    aim_hitbox_spine_3,
-    aim_hitbox_spine_2,
-    aim_hitbox_spine_1,
-    aim_hitbox_spine_0,
-    aim_hitbox_pelvis,
-    aim_hitbox_left_upper_arm,
-    aim_hitbox_right_upper_arm,
-    aim_hitbox_left_thigh,
-    aim_hitbox_right_thigh
-  };
-
-  for (int hitbox_id : candidate_hitboxes) {
-    if (!aimbot_hitbox_matches_mask(hitbox_id, hitbox_mask)) {
-      continue;
-    }
-
-    const Vec3 point_position = hitscan_aim_bounds_point_for_hitbox(bounds, hitbox_id);
-    if (!aimbot_vec3_is_finite(point_position)) {
-      continue;
-    }
-
-    if (require_visibility && !hitscan_aim_point_visible_by_fallback(localplayer, player, hitbox_id, point_position)) {
-      continue;
-    }
-
-    aimbot_point point{};
-    point.valid = true;
-    point.bone = 0;
-    point.hitbox = hitbox_id;
-    point.priority = aimbot_hitbox_priority(localplayer, player, weapon, hitbox_id);
-    point.position = point_position;
-    point.angles = aimbot_calculate_angles_to_position(shoot_pos, point_position);
-    point.fov = aimbot_calculate_fov(point.angles, bullet_view_angles);
-
-    if (!best_point.valid ||
-        point.priority < best_point.priority ||
-        (point.priority == best_point.priority && point.fov < best_point.fov)) {
-      best_point = point;
-    }
-  }
-
-  return best_point;
 }
 
 inline aimbot_point hitscan_aim_find_point(Player* localplayer,
@@ -450,19 +372,6 @@ inline aimbot_point hitscan_aim_find_point(Player* localplayer,
     if (hitscan_aim_point_valid_for_player(player, head_point)) {
       return head_point;
     }
-
-    if (nographics::should_use_aimbot_trace_fallback()) {
-      head_point = hitscan_aim_find_bounds_point(
-        localplayer,
-        weapon,
-        player,
-        bullet_view_angles,
-        aim_hitbox_mask_head,
-        require_visibility);
-      if (head_point.valid) {
-        return head_point;
-      }
-    }
   }
 
   aimbot_point point = aimbot_find_best_point(
@@ -477,17 +386,7 @@ inline aimbot_point hitscan_aim_find_point(Player* localplayer,
     return point;
   }
 
-  if (!nographics::should_use_aimbot_trace_fallback()) {
-    return {};
-  }
-
-  return hitscan_aim_find_bounds_point(
-    localplayer,
-    weapon,
-    player,
-    bullet_view_angles,
-    hitbox_mask,
-    require_visibility);
+  return {};
 }
 
 inline aimbot_candidate hitscan_aim_make_candidate(Player* localplayer,
@@ -517,8 +416,6 @@ inline aimbot_candidate hitscan_aim_make_candidate(Player* localplayer,
   return candidate;
 }
 
-inline bool hitscan_aim_textmode_candidate_visible(Player* localplayer, const aimbot_candidate& candidate);
-
 inline aimbot_candidate hitscan_aim_find_candidate(Player* localplayer, Weapon* weapon, Player* player, const Vec3& original_view_angles) {
   if (localplayer == nullptr || weapon == nullptr || player == nullptr) return {};
 
@@ -538,32 +435,7 @@ inline aimbot_candidate hitscan_aim_find_occluded_candidate(Player* localplayer,
   }
 
   candidate.visible = aimbot_trace_visible_to_position(localplayer, player, point.position, aimbot_hitscan_trace_mask());
-  if (!candidate.visible) {
-    candidate.visible = hitscan_aim_textmode_candidate_visible(localplayer, candidate);
-  }
-
   return candidate;
-}
-
-inline bool hitscan_aim_textmode_candidate_visible(Player* localplayer, const aimbot_candidate& candidate) {
-  if (!nographics::should_use_aimbot_trace_fallback() ||
-      localplayer == nullptr ||
-      candidate.player == nullptr ||
-      !aimbot_vec3_is_finite(candidate.aim_position)) {
-    return false;
-  }
-
-  const Vec3 start_pos = localplayer->get_shoot_pos();
-  if (!aimbot_vec3_is_finite(start_pos) ||
-      !hitscan_aim_path_clear_to_target(localplayer, candidate.player, start_pos, candidate.aim_position)) {
-    return false;
-  }
-
-  return hitscan_aim_ray_hits_selected_area(
-    candidate.player,
-    candidate.hitbox,
-    start_pos,
-    candidate.aim_position);
 }
 
 inline bool hitscan_aim_trace_fallback(const aimbot_candidate& candidate,
@@ -597,18 +469,6 @@ inline bool hitscan_aim_trace_fallback(const aimbot_candidate& candidate,
   }
 
   return hitscan_aim_ray_hits_entity_bounds(candidate.entity, start_pos, end_pos);
-}
-
-inline bool hitscan_aim_textmode_trace_fallback(const aimbot_candidate& candidate,
-  const Vec3& start_pos,
-  const Vec3& end_pos) {
-  if (!nographics::should_use_aimbot_trace_fallback() ||
-      candidate.player == nullptr ||
-      !aimbot_vec3_is_finite(candidate.aim_position)) {
-    return false;
-  }
-
-  return hitscan_aim_trace_fallback(candidate, start_pos, end_pos);
 }
 
 inline bool hitscan_aim_trace_candidate(Player* localplayer,

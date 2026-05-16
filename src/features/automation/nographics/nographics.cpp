@@ -1259,9 +1259,4 @@ bool should_skip_rendering_hooks()
   return textmode_build || (config.misc.exploits.null_graphics && config.misc.exploits.null_graphics_render_stubs);
 }
 
-bool should_use_aimbot_trace_fallback()
-{
-  return is_enabled() && should_skip_rendering_hooks();
-}
-
 } // namespace nographics
