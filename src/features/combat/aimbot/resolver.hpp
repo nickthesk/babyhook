@@ -93,7 +93,8 @@ enum class resolver_mode {
   standing,
   jitter,
   spin,
-  fakewalk
+  fakewalk,
+  sideways_fake
 };
 
 struct resolver_debug_info {
@@ -464,9 +465,7 @@ inline void add_pitch(pitch_candidate_list* list, float pitch, float penalty)
 [[nodiscard]] inline resolver_mode detect_mode(Player* player, const anim_state_snapshot& snapshot)
 {
   const player_history* history = history_for_player(player);
-  if (snapshot.speed_2d > 2.0f && snapshot.speed_2d <= 18.0f) {
-    return resolver_mode::fakewalk;
-  }
+  const bool fakewalk = snapshot.speed_2d > 2.0f && snapshot.speed_2d <= 18.0f;
 
   if (history != nullptr && history->record_count >= 3) {
     const resolver_record& newest = history->records[0];
@@ -475,6 +474,12 @@ inline void add_pitch(pitch_candidate_list* list, float pitch, float penalty)
     if (newest.valid && previous.valid && older.valid) {
       const float step_a = yaw_delta(newest.eye_yaw, previous.eye_yaw);
       const float step_b = yaw_delta(previous.eye_yaw, older.eye_yaw);
+      const float abs_step_a = std::fabs(step_a);
+      const float abs_step_b = std::fabs(step_b);
+      if (abs_step_a > 140.0f && abs_step_b > 140.0f && (step_a > 0.0f) != (step_b > 0.0f)) {
+        return resolver_mode::sideways_fake;
+      }
+
       if (std::fabs(step_a) > 25.0f && std::fabs(step_b) > 25.0f) {
         if ((step_a > 0.0f) != (step_b > 0.0f)) {
           return resolver_mode::jitter;
@@ -485,6 +490,10 @@ inline void add_pitch(pitch_candidate_list* list, float pitch, float penalty)
         }
       }
     }
+  }
+
+  if (fakewalk) {
+    return resolver_mode::fakewalk;
   }
 
   return snapshot.moving ? resolver_mode::moving : resolver_mode::standing;
@@ -545,6 +554,15 @@ inline void add_mode_yaws(Player* localplayer,
       const float spin_step = yaw_delta(history->records[0].eye_yaw, history->records[1].eye_yaw);
       add_yaw(list, base_yaw + spin_step, -2.5f);
       add_yaw(list, base_yaw + (spin_step * 2.0f), -2.0f);
+    }
+    break;
+  case resolver_mode::sideways_fake:
+    add_yaw(list, base_yaw + 90.0f, -5.0f);
+    add_yaw(list, base_yaw - 90.0f, -5.0f);
+    add_yaw(list, gait_yaw, -2.5f);
+    if (const player_history* history = history_for_player(player); history != nullptr && history->record_count >= 2) {
+      add_yaw(list, history->records[1].eye_yaw + 90.0f, -2.0f);
+      add_yaw(list, history->records[1].eye_yaw - 90.0f, -2.0f);
     }
     break;
   case resolver_mode::standing:
@@ -611,6 +629,12 @@ inline void add_history_yaws(Player* player, yaw_candidate_list* list)
 
   add_yaw(&list, base_yaw, 0.0f);
   add_yaw(&list, gait_yaw, snapshot.moving ? 0.5f : 2.5f);
+  if (mode == resolver_mode::sideways_fake) {
+    add_yaw(&list, base_yaw + 90.0f, -5.0f);
+    add_yaw(&list, base_yaw - 90.0f, -5.0f);
+    add_yaw(&list, gait_yaw + 90.0f, -1.0f);
+    add_yaw(&list, gait_yaw - 90.0f, -1.0f);
+  }
   if (snapshot.valid && snapshot.moving) {
     add_yaw(&list, snapshot.velocity_yaw, 0.25f);
   }
@@ -929,6 +953,8 @@ struct scoped_resolved_player_state {
     return "spin";
   case resolver_mode::fakewalk:
     return "fakewalk";
+  case resolver_mode::sideways_fake:
+    return "sideways";
   case resolver_mode::unknown:
     break;
   }
