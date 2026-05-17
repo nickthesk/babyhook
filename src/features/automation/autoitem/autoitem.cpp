@@ -68,8 +68,8 @@ constexpr std::uintptr_t inventory_item_def_offset = 0x64;
 constexpr std::uintptr_t crafting_panel_input_items_offset = 0x310;
 constexpr std::uintptr_t crafting_panel_recipe_offset = 0x450;
 constexpr std::size_t crafting_panel_size = 0x4A0;
-constexpr std::uintptr_t crafting_ui_skip_patch_offset = 0x232;
-constexpr std::uint8_t crafting_ui_skip_patch[] = { 0xE9, 0x6B, 0x00, 0x00, 0x00 };
+constexpr std::uintptr_t crafting_ui_skip_patch_offset = 0x219;
+constexpr std::uint8_t crafting_ui_skip_patch[] = { 0xE9, 0x84, 0x00, 0x00, 0x00 };
 constexpr int inventory_manager_get_local_inventory_index = 24;
 constexpr int inventory_manager_show_items_picked_up_index = 35;
 
