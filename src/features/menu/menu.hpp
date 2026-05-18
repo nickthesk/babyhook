@@ -2334,7 +2334,6 @@ static void draw_exploits_content() {
     cat_menu::checkbox("Pure bypass", &config.misc.exploits.pure_bypass);
     cat_menu::checkbox("Cheats bypass", &config.misc.exploits.cheats_bypass);
     cat_menu::checkbox("VAC bypass", &config.misc.exploits.vac_bypass);
-    cat_menu::checkbox("Ban message bypass", &config.misc.exploits.ban_message_bypass);
     cat_menu::checkbox("Network fix", &config.misc.exploits.network_fix);
     cat_menu::checkbox("No engine sleep", &config.misc.exploits.no_engine_sleep);
     if (cat_menu::checkbox("Null graphics", &config.misc.exploits.null_graphics)) {
@@ -2432,11 +2431,6 @@ static void draw_misc_content() {
       cat_menu::checkbox("Pure bypass", &config.misc.exploits.pure_bypass);
       cat_menu::checkbox("Cheats bypass", &config.misc.exploits.cheats_bypass);
       cat_menu::checkbox("VAC bypass", &config.misc.exploits.vac_bypass);
-      cat_menu::checkbox("Ban message bypass", &config.misc.exploits.ban_message_bypass);
-      cat_menu::slider_float("Ban bypass phase 1 (s)", &config.misc.exploits.ban_bypass_phase1_seconds, 4.0f, 10.0f, "%.1f s");
-      cat_menu::slider_int("Ban bypass phase 2 pulses", &config.misc.exploits.ban_bypass_phase2_pulses, 0, 20);
-      cat_menu::slider_float("Ban bypass pulse (ms)", &config.misc.exploits.ban_bypass_phase2_pulse_ms, 10.0f, 500.0f, "%.0f ms");
-      cat_menu::slider_float("Ban bypass gap (ms)", &config.misc.exploits.ban_bypass_phase2_gap_ms, 20.0f, 1000.0f, "%.0f ms");
       cat_menu::checkbox("Network fix", &config.misc.exploits.network_fix);
       cat_menu::checkbox("Tickbase", &config.misc.exploits.tickbase);
       cat_menu::checkbox("Recharge", &config.misc.exploits.tickbase_recharge);
