@@ -202,6 +202,22 @@ constexpr const char* bone_setup_attachment_matrices =
   "55 48 89 E5 41 57 41 56 41 55 4D 89 C5 41 54 4D 89 CC 53 48 89 FB 48 81 EC 18 10 00 00";
 constexpr const char* studio_render_draw_model_wrapper =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 18 03 00 00 4C 8D 25 ? ? ? ? 48 89 95";
+constexpr const char* client_econ_panel_flex_primary =
+  "80 BF 08 1C 00 00 00 74 07 31 C0 C3 0F 1F 40 00 55 48 89 E5 41 57 41 56 4C 8D B7 98 15 00 00 41 55 41 54 49 89 FC";
+constexpr const char* client_econ_panel_flex_attachments =
+  "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 08 19 00 00 8B 87 30 1C 00 00 48 89 B5";
+constexpr const char* client_ragdoll_lru_update =
+  "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 83 EC 48 4C 8B 25 ? ? ? ? 48 C7 45 C8 00";
+constexpr const char* client_particle_mgr_simulate_undrawn =
+  "55 31 C0 48 89 E5 41 56 41 55 41 54 53 48 89 FB 48 83 EC 20 4C 8B 25 ? ? ? ? 48 C7 45 C8 00 00 00 00 49 8B 7C 24 18 48 85 FF 74 50 48 83 EC 08 45 31 C0 31 C9 48 8D 05 ? ? ? ? 31 D2 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 75 C8 31 C0 68 CA 05 00 00";
+constexpr const char* client_temp_ents_update =
+  "55 31 C0 48 89 E5 41 57 41 56 41 55 41 54 49 89 FC 53 48 83 EC 38 48 8B 1D ? ? ? ? 48 C7 45 B8 00 00 00 00 48 8B 7B 18 48 85 FF 74 4F 48 83 EC 08 45 31 C0 31 C9 48 8D 05 ? ? ? ? 31 D2 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 75 B8 31 C0 68 34 09 00 00";
+constexpr const char* client_rope_manager_draw_render_cache =
+  "55 48 89 E5 41 57 49 89 FF 41 56 41 55 41 54 53 89 F3 48 81 EC A8 04 00 00 48 8B 05 ? ? ? ?";
+constexpr const char* client_init_caption_dictionary =
+  "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC B8 11 00 00 66 83 BF 2C 03";
+constexpr const char* client_parse_particle_effects_map =
+  "55 48 89 E5 41 56 41 55 49 89 FD BF 40 00 00 00 41 54 53 48 83 EC 10 E8";
 
 } // namespace sigs
 

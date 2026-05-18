@@ -101,6 +101,7 @@ bool render_patches_initialized = false;
 bool render_patches_ready = false;
 bool engine_render_patches_initialized = false;
 bool materialsystem_render_patches_initialized = false;
+bool client_textmode_cpu_patches_initialized = false;
 std::atomic_bool startup_patch_running = false;
 
 #if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
@@ -159,7 +160,6 @@ void sync_nographics_toggles()
   config.misc.exploits.experimental_nographic_hooks = textmode_build || config.misc.exploits.null_graphics;
 }
 
-byte_patch dispatch_anim_events_patch{};
 byte_patch particle_create_patch{};
 byte_patch particle_precache_patch{};
 byte_patch particle_effect_create_patch{};
@@ -180,6 +180,14 @@ std::array<byte_patch, replay_ui_nullcheck_patch_count> replay_ui_nullcheck_patc
 std::array<byte_patch, character_info_command_patch_count> character_info_command_patches{};
 byte_patch econ_item_definition_index_patch{};
 byte_patch studio_render_draw_model_wrapper_patch{};
+byte_patch econ_panel_flex_primary_patch{};
+byte_patch econ_panel_flex_attachments_patch{};
+byte_patch ragdoll_lru_update_patch{};
+byte_patch particle_mgr_simulate_undrawn_patch{};
+byte_patch temp_ents_update_patch{};
+byte_patch rope_manager_draw_render_cache_patch{};
+byte_patch init_caption_dictionary_patch{};
+byte_patch parse_particle_effects_map_patch{};
 
 char normalize_path_char(const char value)
 {
@@ -319,9 +327,10 @@ bool is_required_model_asset(const std::string_view filename, const std::string_
 
 bool should_block_file(const char* raw_filename)
 {
-  constexpr std::array<std::string_view, 15> blocked_extensions = {
+  constexpr std::array<std::string_view, 18> blocked_extensions = {
     ".ani", ".wav", ".mp3", ".vvd", ".vtx", ".vfe", ".cache",
     ".jpg", ".png", ".tga", ".dds", ".bik", ".webm", ".vcd", ".pcf",
+    ".cur", ".ico", ".dem",
   };
 
   if (raw_filename == nullptr)
@@ -357,7 +366,10 @@ bool should_block_file(const char* raw_filename)
       path_starts_with(filename, "resource/replay/") ||
       path_starts_with(filename, "materials/vgui/replay/") ||
       path_starts_with(filename, "media/") ||
-      path_starts_with(filename, "videos/"))
+      path_starts_with(filename, "videos/") ||
+      path_starts_with(filename, "cursors/") ||
+      path_starts_with(filename, "resource/cursors/") ||
+      path_starts_with(filename, "materials/cursors/"))
   {
     return true;
   }
@@ -558,7 +570,7 @@ std::int64_t bone_setup_attachment_matrices_hook(
   std::int64_t origin_buffer,
   int origin_count)
 {
-  if (bone_matrix_buffer == nullptr)
+  if (studio_hdr == nullptr || bone_matrix_buffer == nullptr || attachment_data == nullptr)
   {
     return 0;
   }
@@ -673,10 +685,27 @@ void initialize_materialsystem_render_patches()
   initialize_optional_patch(material_system_begin_frame_patch, "materialsystem.so", sigs::material_system_begin_frame, 0, { 0xC3 }, "material_system_begin_frame");
 }
 
+void initialize_client_textmode_cpu_patches()
+{
+  if (client_textmode_cpu_patches_initialized || !module_is_loaded("client.so"))
+  {
+    return;
+  }
+
+  client_textmode_cpu_patches_initialized = true;
+  initialize_optional_patch(ragdoll_lru_update_patch, "client.so", sigs::client_ragdoll_lru_update, 0, { 0xC3 }, "client_ragdoll_lru_update");
+  initialize_optional_patch(particle_mgr_simulate_undrawn_patch, "client.so", sigs::client_particle_mgr_simulate_undrawn, 0, { 0xC3 }, "client_particle_mgr_simulate_undrawn");
+  initialize_optional_patch(temp_ents_update_patch, "client.so", sigs::client_temp_ents_update, 0, { 0xC3 }, "client_temp_ents_update");
+  initialize_optional_patch(rope_manager_draw_render_cache_patch, "client.so", sigs::client_rope_manager_draw_render_cache, 0, { 0xC3 }, "client_rope_manager_draw_render_cache");
+  initialize_optional_patch(init_caption_dictionary_patch, "client.so", sigs::client_init_caption_dictionary, 0, { 0x31, 0xC0, 0xC3 }, "client_init_caption_dictionary");
+  initialize_optional_patch(parse_particle_effects_map_patch, "client.so", sigs::client_parse_particle_effects_map, 0, { 0xC3 }, "client_parse_particle_effects_map");
+}
+
 void initialize_optional_render_patches()
 {
   initialize_engine_render_patches();
   initialize_materialsystem_render_patches();
+  initialize_client_textmode_cpu_patches();
 }
 
 void restore_optional_render_patches()
@@ -689,6 +718,12 @@ void restore_optional_render_patches()
   sprite_load_model_patch.restore();
   overlay_mgr_load_overlays_patch.restore();
   material_system_begin_frame_patch.restore();
+  ragdoll_lru_update_patch.restore();
+  particle_mgr_simulate_undrawn_patch.restore();
+  temp_ents_update_patch.restore();
+  rope_manager_draw_render_cache_patch.restore();
+  init_caption_dictionary_patch.restore();
+  parse_particle_effects_map_patch.restore();
   optional_render_patches_applied = false;
 }
 
@@ -721,6 +756,12 @@ bool apply_optional_render_patches()
   applied_any_patch = apply_optional_patch(sprite_load_model_patch, "sprite_load_model") || applied_any_patch;
   applied_any_patch = apply_optional_patch(overlay_mgr_load_overlays_patch, "overlay_mgr_load_overlays") || applied_any_patch;
   applied_any_patch = apply_optional_patch(material_system_begin_frame_patch, "material_system_begin_frame") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(ragdoll_lru_update_patch, "client_ragdoll_lru_update") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(particle_mgr_simulate_undrawn_patch, "client_particle_mgr_simulate_undrawn") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(temp_ents_update_patch, "client_temp_ents_update") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(rope_manager_draw_render_cache_patch, "client_rope_manager_draw_render_cache") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(init_caption_dictionary_patch, "client_init_caption_dictionary") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(parse_particle_effects_map_patch, "client_parse_particle_effects_map") || applied_any_patch;
   optional_render_patches_applied = optional_render_patches_applied || applied_any_patch;
   return applied_any_patch;
 }
@@ -843,12 +884,31 @@ bool initialize_extra_crashfix_patches()
     initialized_any_patch = true;
   }
 
+  if (initialize_optional_patch(econ_panel_flex_primary_patch,
+                                "client.so",
+                                sigs::client_econ_panel_flex_primary,
+                                0,
+                                { 0x31, 0xC0, 0xC3 },
+                                "client_econ_panel_flex_primary"))
+  {
+    initialized_any_patch = true;
+  }
+
+  if (initialize_optional_patch(econ_panel_flex_attachments_patch,
+                                "client.so",
+                                sigs::client_econ_panel_flex_attachments,
+                                0,
+                                { 0x31, 0xC0, 0xC3 },
+                                "client_econ_panel_flex_attachments"))
+  {
+    initialized_any_patch = true;
+  }
+
   return initialized_any_patch;
 }
 
 void restore_render_patch_objects()
 {
-  dispatch_anim_events_patch.restore();
   particle_create_patch.restore();
   particle_precache_patch.restore();
   particle_effect_create_patch.restore();
@@ -869,6 +929,8 @@ void restore_render_patch_objects()
 
   econ_item_definition_index_patch.restore();
   studio_render_draw_model_wrapper_patch.restore();
+  econ_panel_flex_primary_patch.restore();
+  econ_panel_flex_attachments_patch.restore();
 }
 
 bool initialize_render_patches()
@@ -942,6 +1004,8 @@ void apply_render_patches()
     }
     ok = apply_render_patch_if_valid(econ_item_definition_index_patch, "econ_item_definition_index") && ok;
     ok = apply_render_patch_if_valid(studio_render_draw_model_wrapper_patch, "studio_render_draw_model_wrapper") && ok;
+    ok = apply_render_patch_if_valid(econ_panel_flex_primary_patch, "client_econ_panel_flex_primary") && ok;
+    ok = apply_render_patch_if_valid(econ_panel_flex_attachments_patch, "client_econ_panel_flex_attachments") && ok;
   }
 
   if (!ok)
