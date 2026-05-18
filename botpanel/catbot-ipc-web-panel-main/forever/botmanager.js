@@ -52,7 +52,7 @@ class BotManager {
 
         for (var i = self.bots.length - 1; i >= 0; i--) {
             var b = self.bots[i];
-            if (b.state == Bot.states.STARTING)
+            if (b.start_slot_in_use())
                 Bot.currentlyStartingGames++;
             if (b.steam_boot_in_progress())
                 Bot.currentlyBootingSteam++;

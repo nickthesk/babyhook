@@ -77,6 +77,8 @@ const DELAY_START_TIME = (Number.isFinite(BOT_START_DELAY_SECONDS_VALUE) ? Math.
 const STEAM_BOOT_CONCURRENCY_VALUE = Number.parseInt(process.env.CAT_STEAM_BOOT_CONCURRENCY || String(config.steam_boot_concurrency || '1'), 10);
 const STEAM_BOOT_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_BOOT_DELAY_SECONDS || String(config.steam_boot_delay_seconds || '8'), 10);
 const STEAM_BOOT_DELAY = (Number.isFinite(STEAM_BOOT_DELAY_SECONDS_VALUE) ? Math.max(0, STEAM_BOOT_DELAY_SECONDS_VALUE) : 8) * 1000;
+const STEAM_STARTUP_HARD_TIMEOUT_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_STARTUP_HARD_TIMEOUT_SECONDS || '900', 10);
+const STEAM_STARTUP_HARD_TIMEOUT = (Number.isFinite(STEAM_STARTUP_HARD_TIMEOUT_SECONDS_VALUE) ? Math.max(0, STEAM_STARTUP_HARD_TIMEOUT_SECONDS_VALUE) : 900) * 1000;
 const GAME_STARTUP_FATAL_PATTERNS = [
     'AppFramework : Unable to load module engine.so!',
     'Unable to load interface VCvarQuery001 from engine.so'
@@ -2261,6 +2263,11 @@ class Bot extends EventEmitter {
             this.shouldRestart = true;
             this.time_steamWorking = 0;
         }
+        else if (this.shouldRun && !this.isSteamWorking) {
+            this.log(`[ERROR] Steam exited before login/readiness after ${Math.max(1, Math.ceil(steam_runtime / 1000))} seconds; restarting instead of leaving bot in STARTING.`);
+            this.shouldRestart = true;
+            this.time_steamWorking = 0;
+        }
         this.emit('exit-steam');
 
         this.isSteamWorking = false;
@@ -2342,6 +2349,10 @@ class Bot extends EventEmitter {
 
     steam_boot_in_progress() {
         return this.state === STATE.STARTING && !!this.procFirejailSteam && !this.steamClientInitialized;
+    }
+
+    start_slot_in_use() {
+        return this.state === STATE.STARTING && !!this.procFirejailSteam;
     }
 
     request_restart(reason) {
@@ -2837,6 +2848,14 @@ class Bot extends EventEmitter {
                     if (this.time_steamWorking && time > this.time_steamWorking) {
                         this.log('Steam login/readiness timed out.');
                         this.logSteamTails('Steam startup log tail', 12);
+                        this.shouldRestart = true;
+                        this.time_steamWorking = 0;
+                        return;
+                    }
+
+                    if (STEAM_STARTUP_HARD_TIMEOUT && this.time_steam_launch_started && time - this.time_steam_launch_started > STEAM_STARTUP_HARD_TIMEOUT) {
+                        this.log(`Steam startup hard timeout after ${Math.floor((time - this.time_steam_launch_started) / 1000)} seconds; restarting to avoid permanent STARTING state.`);
+                        this.logSteamTails('Steam startup hard-timeout log tail', 12);
                         this.shouldRestart = true;
                         this.time_steamWorking = 0;
                     }
