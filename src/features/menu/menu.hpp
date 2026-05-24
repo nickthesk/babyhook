@@ -1947,7 +1947,7 @@ static void draw_cat_bot_content() {
   cat_menu::flow_panel("Region selector", 1, 360.0f, [&]() {
     draw_region_selector_panel("##region_selector_list");
   }, false);
-  cat_menu::flow_panel("Utilities", 1, 248.0f, [&]() {
+  cat_menu::flow_panel("Utilities", 1, 278.0f, [&]() {
     cat_menu::checkbox("Anti AFK", &config.misc.automation.anti_afk);
     cat_menu::checkbox("Anti autobalance", &config.misc.automation.anti_autobalance);
     cat_menu::checkbox("Anti MOTD", &config.misc.automation.anti_motd);
@@ -1959,6 +1959,7 @@ static void draw_cat_bot_content() {
     cat_menu::checkbox("Micspam", &config.misc.automation.micspam);
     cat_menu::slider_int("Micspam on", &config.misc.automation.micspam_interval_on_seconds, 1, 600, "%d s");
     cat_menu::slider_int("Micspam off", &config.misc.automation.micspam_interval_off_seconds, 1, 600, "%d s");
+    cat_menu::checkbox("Micspam from file", &config.misc.automation.micspam_from_file);
   });
   cat_menu::flow_panel("AutoItem", 2, 290.0f, [&]() {
     cat_menu::checkbox("Enable", &config.misc.automation.auto_item);
@@ -2093,12 +2094,13 @@ static void draw_automation_utilities_content() {
     cat_menu::slider_int("Vote option", &config.misc.automation.auto_vote_map_option, 0, 2);
     cat_menu::checkbox("Custom announcer", &config.misc.automation.custom_announcer);
   });
-  cat_menu::flow_panel("Spam", 1, 170.0f, [&]() {
+  cat_menu::flow_panel("Spam", 1, 200.0f, [&]() {
     cat_menu::checkbox("Noisemaker spam", &config.misc.automation.noisemaker_spam);
     cat_menu::combo("Voice command spam", (int*)&config.misc.automation.voice_command_spam, voice_command_spam_items, IM_ARRAYSIZE(voice_command_spam_items));
     cat_menu::checkbox("Micspam", &config.misc.automation.micspam);
     cat_menu::slider_int("Micspam on", &config.misc.automation.micspam_interval_on_seconds, 1, 600, "%d s");
     cat_menu::slider_int("Micspam off", &config.misc.automation.micspam_interval_off_seconds, 1, 600, "%d s");
+    cat_menu::checkbox("Micspam from file", &config.misc.automation.micspam_from_file);
   });
   cat_menu::flow_panel("Taunt", 2, 128.0f, [&]() {
     cat_menu::checkbox("Auto taunt", &config.misc.automation.autotaunt);

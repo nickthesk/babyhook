@@ -566,6 +566,7 @@ struct Misc {
     bool micspam = false;
     int micspam_interval_on_seconds = 3;
     int micspam_interval_off_seconds = 60;
+    bool micspam_from_file = false;
     bool auto_item = false;
     int auto_item_interval_ms = 30000;
     bool auto_item_weapons = false;

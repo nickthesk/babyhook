@@ -13,11 +13,13 @@ V  o o  V  file: src/features/automation/misc/misc.cpp
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <system_error>
 #include <fstream>
 #include <limits>
 #include <string>
@@ -66,6 +68,8 @@ constexpr float noisemaker_interval = 0.2f;
 constexpr float voice_command_spam_interval = 6.5f;
 constexpr int micspam_min_interval_seconds = 1;
 constexpr int micspam_max_interval_seconds = 600;
+constexpr const char* micspam_source_directory = "/opt/cathook/micspam";
+constexpr const char* micspam_voice_input_path = "voice_input.wav";
 constexpr float mvm_command_interval = 1.0f;
 constexpr float mvm_buybot_interval = 0.2f;
 constexpr float ping_reduce_interval = 0.1f;
@@ -1787,19 +1791,102 @@ void automation_controller::run_voice_command_spam()
   next_voice_command_time_ = global_vars->realtime + voice_command_spam_interval;
 }
 
+bool automation_controller::prepare_micspam_voice_file()
+{
+  namespace fs = std::filesystem;
+
+  std::error_code ec;
+  if (!fs::is_directory(micspam_source_directory, ec))
+  {
+    return false;
+  }
+
+  std::vector<fs::path> candidates;
+  for (const auto& entry : fs::directory_iterator(micspam_source_directory, ec))
+  {
+    if (ec || !entry.is_regular_file(ec))
+    {
+      continue;
+    }
+    std::string ext = entry.path().extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+    if (ext == ".wav" || ext == ".mp3" || ext == ".webm")
+    {
+      candidates.push_back(entry.path());
+    }
+  }
+
+  if (candidates.empty())
+  {
+    return false;
+  }
+
+  const std::size_t index = candidates.size() == 1
+    ? 0
+    : static_cast<std::size_t>(std::rand()) % candidates.size();
+  const fs::path& selected = candidates[index];
+
+  const std::string source_path = selected.string();
+  const std::string source_ext = [&]() {
+    std::string e = selected.extension().string();
+    std::transform(e.begin(), e.end(), e.begin(), [](unsigned char c) { return std::tolower(c); });
+    return e;
+  }();
+
+  fs::remove(micspam_voice_input_path, ec);
+
+  if (source_ext == ".wav")
+  {
+    fs::copy_file(selected, micspam_voice_input_path, fs::copy_options::overwrite_existing, ec);
+    if (!ec)
+    {
+      return true;
+    }
+  }
+
+  std::string escaped_source;
+  escaped_source.reserve(source_path.size() + 2);
+  for (char c : source_path)
+  {
+    if (c == '\'')
+    {
+      escaped_source += "'\\''";
+    }
+    else
+    {
+      escaped_source += c;
+    }
+  }
+
+  std::string cmd = "ffmpeg -hide_banner -loglevel error -y -i '";
+  cmd += escaped_source;
+  cmd += "' -ac 1 -ar 22050 -acodec pcm_s16le -fflags +bitexact -flags +bitexact ";
+  cmd += micspam_voice_input_path;
+  cmd += " >/dev/null 2>&1";
+
+  const int rc = std::system(cmd.c_str());
+  return rc == 0 && fs::exists(micspam_voice_input_path, ec);
+}
+
 void automation_controller::stop_micspam()
 {
   next_micspam_on_time_ = 0.0f;
   next_micspam_off_time_ = 0.0f;
 
-  if (!micspam_recording_ || engine == nullptr)
+  if (micspam_recording_ && engine != nullptr)
   {
-    micspam_recording_ = false;
-    return;
+    engine->client_cmd_unrestricted("-voicerecord");
   }
-
-  engine->client_cmd_unrestricted("-voicerecord");
   micspam_recording_ = false;
+
+  if (micspam_voice_inputfromfile_active_ && convar_system != nullptr)
+  {
+    if (Convar* voice_inputfromfile = convar_system->find_var("voice_inputfromfile"))
+    {
+      voice_inputfromfile->set_int(0);
+    }
+  }
+  micspam_voice_inputfromfile_active_ = false;
 }
 
 void automation_controller::run_micspam()
@@ -1831,8 +1918,28 @@ void automation_controller::run_micspam()
 
   if (now >= next_micspam_on_time_)
   {
-    engine->client_cmd_unrestricted("+voicerecord");
-    micspam_recording_ = true;
+    if (config.misc.automation.micspam_from_file)
+    {
+      if (prepare_micspam_voice_file() && convar_system != nullptr)
+      {
+        if (Convar* sv_allow_voice_from_file = convar_system->find_var("sv_allow_voice_from_file"))
+        {
+          sv_allow_voice_from_file->set_int(1);
+        }
+        if (Convar* voice_inputfromfile = convar_system->find_var("voice_inputfromfile"))
+        {
+          voice_inputfromfile->set_int(1);
+          micspam_voice_inputfromfile_active_ = true;
+        }
+        engine->client_cmd_unrestricted("+voicerecord");
+        micspam_recording_ = true;
+      }
+    }
+    else
+    {
+      engine->client_cmd_unrestricted("+voicerecord");
+      micspam_recording_ = true;
+    }
     next_micspam_on_time_ = now + static_cast<float>(on_seconds);
   }
 
@@ -1840,6 +1947,14 @@ void automation_controller::run_micspam()
   {
     engine->client_cmd_unrestricted("-voicerecord");
     micspam_recording_ = false;
+    if (micspam_voice_inputfromfile_active_ && convar_system != nullptr)
+    {
+      if (Convar* voice_inputfromfile = convar_system->find_var("voice_inputfromfile"))
+      {
+        voice_inputfromfile->set_int(0);
+      }
+      micspam_voice_inputfromfile_active_ = false;
+    }
     next_micspam_off_time_ = now + static_cast<float>(off_seconds);
   }
 }

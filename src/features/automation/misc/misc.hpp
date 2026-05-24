@@ -49,6 +49,7 @@ private:
   void run_noisemaker_spam();
   void run_micspam();
   void stop_micspam();
+  bool prepare_micspam_voice_file();
   void run_mvm_actions();
   void run_ping_reducer();
   void run_queueing();
@@ -74,6 +75,7 @@ private:
   bool original_allow_secure_servers_ = false;
   bool ping_reducer_saved_cmd_rate_ = false;
   bool micspam_recording_ = false;
+  bool micspam_voice_inputfromfile_active_ = false;
   int original_cmd_rate_ = 0;
   int mvm_buybot_step_ = 1;
   int autotaunt_previous_slot_ = -1;

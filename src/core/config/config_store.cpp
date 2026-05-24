@@ -442,6 +442,7 @@ void config_store::import_config(const Config& config)
     set_bool("misc.automation.micspam", config.misc.automation.micspam);
     set_int("misc.automation.micspam_interval_on_seconds", config.misc.automation.micspam_interval_on_seconds);
     set_int("misc.automation.micspam_interval_off_seconds", config.misc.automation.micspam_interval_off_seconds);
+    set_bool("misc.automation.micspam_from_file", config.misc.automation.micspam_from_file);
     set_bool("misc.automation.auto_item", config.misc.automation.auto_item);
     set_int("misc.automation.auto_item_interval_ms", config.misc.automation.auto_item_interval_ms);
     set_bool("misc.automation.auto_item_weapons", config.misc.automation.auto_item_weapons);
@@ -1031,6 +1032,8 @@ void config_store::export_config(Config& config) const
             get_int("cat-bot.micspam.interval-off", config.misc.automation.micspam_interval_off_seconds)),
         1,
         600);
+    config.misc.automation.micspam_from_file = get_bool(
+        "misc.automation.micspam_from_file", config.misc.automation.micspam_from_file);
     config.misc.automation.auto_item = get_bool(
         "misc.automation.auto_item",
         get_bool("auto-item.enable", config.misc.automation.auto_item));
