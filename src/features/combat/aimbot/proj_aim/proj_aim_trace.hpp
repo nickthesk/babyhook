@@ -571,7 +571,7 @@ inline bool proj_aim_trace_splash_path(Player* localplayer,
   Vec3* explosion_origin_out = nullptr,
   const Vec3* predicted_target_origin = nullptr,
   bool validate_damage = true) {
-  if (localplayer == nullptr || target == nullptr || weapon == nullptr || engine_trace == nullptr || !intercept.valid || !intercept.trace.valid || splash_radius <= 0.0f) {
+  if (localplayer == nullptr || target == nullptr || weapon == nullptr || engine_trace == nullptr || !intercept.valid || splash_radius <= 0.0f) {
     return false;
   }
 

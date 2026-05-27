@@ -1084,7 +1084,9 @@ inline bool projectile_simulation::init(const projectile_sim_launch& launch_in,
   });
   initialized = true;
   result.valid = true;
-  init_physics();
+  if (trace_mode != projectile_sim_trace_mode::none && profile.collide_world) {
+    init_physics();
+  }
   return true;
 }
 

@@ -38,6 +38,7 @@ struct hitscan_target {
 
 struct hitscan_trace_result {
   bool hit = false;
+  bool clear = false;
   Entity* entity = nullptr;
   int hitbox = -1;
 };
@@ -109,7 +110,8 @@ inline hitscan_trace_result hitscan_aim_trace_line(Player* localplayer, const Ve
 
   result.entity = static_cast<Entity*>(trace.entity);
   result.hitbox = trace.hitbox;
-  result.hit = result.entity != nullptr || (!trace.all_solid && !trace.start_solid && trace.fraction >= 0.999f);
+  result.clear = !trace.all_solid && !trace.start_solid && trace.fraction >= 0.999f;
+  result.hit = result.entity != nullptr || result.clear;
   return result;
 }
 
@@ -126,7 +128,7 @@ inline bool hitscan_aim_trace_point(Player* localplayer,
     *result_out = result;
   }
 
-  return result.entity == target;
+  return result.entity == target || result.clear;
 }
 
 inline bool hitscan_aim_body_forced(Player* localplayer, Weapon* weapon, Player* target) {
@@ -324,7 +326,10 @@ inline hitscan_point hitscan_aim_make_point(Player* localplayer,
     return point;
   }
 
-  if (hitbox == aim_hitbox_head && trace.hitbox != aim_hitbox_head && !hitscan_aim_adjust_head_point(localplayer, target, &position)) {
+  if (hitbox == aim_hitbox_head &&
+      trace.entity == target &&
+      trace.hitbox != aim_hitbox_head &&
+      !hitscan_aim_adjust_head_point(localplayer, target, &position)) {
     return point;
   }
 
@@ -364,6 +369,31 @@ inline hitscan_point hitscan_aim_find_point(Player* localplayer,
 
   matrix_3x4 bone_to_world[128]{};
   if (!target->setup_bones(bone_to_world, 128, 0x7FF00, target->get_simulation_time())) {
+    for (int order_index = 0; order_index < hitbox_count; ++order_index) {
+      const int hitbox_id = hitboxes[order_index];
+      Vec3 position{};
+      int bone = 0;
+      if (!target->get_hitbox_center(hitbox_id, &position, &bone)) {
+        continue;
+      }
+
+      hitscan_point point = hitscan_aim_make_point(
+        localplayer,
+        target,
+        weapon,
+        view_angles,
+        hitbox_id,
+        bone,
+        order_index,
+        position);
+      if (!point.valid) {
+        continue;
+      }
+
+      if (!best.valid || point.priority < best.priority || (point.priority == best.priority && point.fov < best.fov)) {
+        best = point;
+      }
+    }
     return best;
   }
 

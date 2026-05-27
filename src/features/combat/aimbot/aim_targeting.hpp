@@ -378,30 +378,6 @@ inline bool projectile_solution_ready(Player* localplayer,
   projectile_sim_profile profile = projectile_sim_profile_for_weapon(localplayer, weapon);
   if (!profile.valid || profile.params.speed <= 0.0f || candidate.projectile_intercept_time <= 0.0f) return false;
 
-  if (aimbot_simple_simulation_enabled() && candidate.projectile_direct) {
-    LocalPredictionInterceptResult adjusted_intercept{};
-    adjusted_intercept.valid = true;
-    adjusted_intercept.has_target_base_origin = candidate.projectile_has_target_base_origin;
-    adjusted_intercept.intercept_time = candidate.projectile_intercept_time;
-    adjusted_intercept.intercept_distance = candidate.distance;
-    adjusted_intercept.miss_distance = candidate.projectile_miss_distance;
-    adjusted_intercept.aim_angles = applied_view_angles;
-    adjusted_intercept.target_origin = candidate.aim_position;
-    adjusted_intercept.target_base_origin = candidate.projectile_target_base_origin;
-    adjusted_intercept.target_offset = candidate.projectile_target_offset;
-    return proj_aim_trace_simple_path(localplayer, candidate.player, weapon, adjusted_intercept);
-  }
-
-  profile.params.max_time = std::min(
-    profile.params.max_time,
-    std::max(candidate.projectile_intercept_time + profile.params.time_step, profile.params.time_step));
-  profile.lifetime = profile.params.max_time;
-
-  const projectile_sim_launch launch = projectile_sim_build_launch_from_angles(localplayer, weapon, applied_view_angles, profile);
-  const projectile_sim_result sim_result = projectile_sim_run(launch, profile);
-  LocalPredictionProjectileTrace trace = local_prediction_trace_from_projectile_sim(sim_result);
-  if (!trace.valid || trace.steps.empty()) return false;
-
   LocalPredictionInterceptResult adjusted_intercept{};
   adjusted_intercept.valid = true;
   adjusted_intercept.has_target_base_origin = candidate.projectile_has_target_base_origin;
@@ -412,10 +388,9 @@ inline bool projectile_solution_ready(Player* localplayer,
   adjusted_intercept.target_origin = candidate.aim_position;
   adjusted_intercept.target_base_origin = candidate.projectile_target_base_origin;
   adjusted_intercept.target_offset = candidate.projectile_target_offset;
-  adjusted_intercept.trace = trace;
 
   if (candidate.projectile_direct) {
-    return proj_aim_trace_path(localplayer, candidate.player, weapon, adjusted_intercept);
+    return proj_aim_trace_simple_path(localplayer, candidate.player, weapon, adjusted_intercept);
   }
 
   const uint32_t hitbox_mask = proj_aim_effective_hitbox_mask(localplayer, weapon, candidate.player);
