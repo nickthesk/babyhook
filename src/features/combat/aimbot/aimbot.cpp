@@ -365,6 +365,9 @@ void compute_readiness(aimbot_run_context& ctx) {
   ctx.readiness.primary = weapon_allows_primary_fire(ctx.local, ctx.weapon) && !secondary_blocks_attack;
   ctx.readiness.attack = ctx.target.entity != nullptr &&
     aim_auto_shoot::weapon_can_attack_or_release(ctx.local, ctx.weapon);
+  if (ctx.projectile) {
+    ctx.debug.final_trace_hit = ctx.readiness.trace;
+  }
 
   if (!ctx.readiness.headshot || !ctx.readiness.charge || !ctx.readiness.trace || !ctx.readiness.settled || !ctx.readiness.primary) {
     if (ctx.hitscan || ctx.melee) {
@@ -438,7 +441,7 @@ aimbot_debug_reason classify_outcome(const aimbot_run_context& ctx) {
   if (!ctx.readiness.headshot) {
     return aimbot_debug_reason::headshot_wait;
   }
-  if (ctx.hitscan && !ctx.readiness.trace) {
+  if ((ctx.hitscan || ctx.projectile) && !ctx.readiness.trace) {
     if (ctx.hitscan_fire.seed_missing) {
       return aimbot_debug_reason::spread_seed_missing;
     }

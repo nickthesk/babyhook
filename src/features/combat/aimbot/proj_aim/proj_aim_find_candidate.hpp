@@ -338,6 +338,25 @@ inline aimbot_candidate proj_aim_find_simple_candidate(Player* localplayer,
   return direct_candidate;
 }
 
+inline float proj_aim_direct_prediction_horizon(Player* localplayer,
+  Weapon* weapon,
+  Player* player,
+  const proj_aim_weapon_profile& profile) {
+  if (localplayer == nullptr || weapon == nullptr || player == nullptr || profile.params.speed <= 0.0f) {
+    return profile.params.max_time;
+  }
+
+  const Vec3 shoot_pos = localplayer->get_shoot_pos();
+  const float distance = distance_3d(shoot_pos, player->get_origin());
+  const float flight_time = distance / std::max(profile.params.speed, 1.0f);
+  const float lead_time = local_prediction_ticks_to_time(local_prediction_network_lead_ticks(player));
+  const float pad_time = profile.arcing ? 0.45f : 0.25f;
+  return std::clamp(
+    flight_time + lead_time + pad_time,
+    std::max(0.18f, static_cast<float>(TICK_INTERVAL) * 8.0f),
+    profile.params.max_time);
+}
+
 inline aimbot_candidate proj_aim_find_candidate(Player* localplayer, Weapon* weapon, Player* player, user_cmd* user_cmd, const Vec3& original_view_angles) {
   aimbot_candidate candidate{};
   if (localplayer == nullptr || weapon == nullptr || player == nullptr || user_cmd == nullptr) return candidate;
@@ -354,7 +373,11 @@ inline aimbot_candidate proj_aim_find_candidate(Player* localplayer, Weapon* wea
   proj_aim_budget_guard budget_scope{};
   proj_aim_budget_begin_for_distance(distance_3d(localplayer->get_shoot_pos(), player->get_origin()));
 
-  LocalPredictionEntityPath target_path = local_prediction_predict_entity_path(player, profile.params.max_time, true, true);
+  const bool direct_only = config.aimbot.projectile_mode == Aim::ProjectileMode::DIRECT_ONLY;
+  const float target_path_horizon = direct_only
+    ? proj_aim_direct_prediction_horizon(localplayer, weapon, player, profile)
+    : profile.params.max_time;
+  LocalPredictionEntityPath target_path = local_prediction_predict_entity_path(player, target_path_horizon, true, true);
   if (!target_path.valid || target_path.positions.empty()) {
     return candidate;
   }

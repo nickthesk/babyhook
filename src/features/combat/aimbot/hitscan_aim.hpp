@@ -145,7 +145,7 @@ inline Vec3 hitscan_aim_bounds_point(Player* target, int hitbox) {
 
   switch (hitbox) {
   case aim_hitbox_head:
-    z_ratio = 0.86f;
+    z_ratio = 0.80f;
     break;
   case aim_hitbox_pelvis:
     z_ratio = 0.42f;
@@ -410,7 +410,7 @@ inline bool hitscan_aim_ray_hits_model_hitbox(Player* target,
 
   const Vec3 local_start = aimbot_inverse_transform_point(start_pos, bone_to_world[hitbox->bone]);
   const Vec3 local_end = aimbot_inverse_transform_point(end_pos, bone_to_world[hitbox->bone]);
-  constexpr float expansion = 2.5f;
+  constexpr float expansion = 1.25f;
   const Vec3 mins = hitbox->bbmin - Vec3{expansion, expansion, expansion};
   const Vec3 maxs = hitbox->bbmax + Vec3{expansion, expansion, expansion};
   return aimbot_segment_intersects_aabb(local_start, local_end, mins, maxs);
@@ -462,8 +462,8 @@ inline bool hitscan_aim_trace_fallback(const aimbot_candidate& candidate,
   }
 
   if (candidate.player != nullptr) {
-    if (candidate.hitbox >= 0 && hitscan_aim_ray_hits_model_hitbox(candidate.player, candidate.hitbox, start_pos, end_pos)) {
-      return true;
+    if (candidate.hitbox >= 0) {
+      return hitscan_aim_ray_hits_model_hitbox(candidate.player, candidate.hitbox, start_pos, end_pos);
     }
 
     return hitscan_aim_ray_hits_player_bounds(candidate.player, start_pos, end_pos);
@@ -571,7 +571,9 @@ inline hitscan_point hitscan_aim_find_point(Player* localplayer,
 
     constexpr int max_local_points = 10;
     Vec3 local_points[max_local_points]{};
-    const bool use_multipoint = hitbox_id == priority_hitbox && settings.multipoint_scale > 0.0f;
+    const bool use_multipoint = hitbox_id == priority_hitbox &&
+      hitbox_id != aim_hitbox_head &&
+      settings.multipoint_scale > 0.0f;
     const int point_count = aimbot_build_local_hitbox_points(
       *hitbox,
       bone_to_world[hitbox->bone],
@@ -669,18 +671,17 @@ inline bool hitscan_aim_trace_backtrack_candidate(const aimbot_candidate& candid
     return aimbot_segment_intersects_aabb(start_pos, end_pos, candidate.backtrack_mins, candidate.backtrack_maxs);
   }
 
-  const Vec3 center = (candidate.backtrack_mins + candidate.backtrack_maxs) * 0.5f;
-  const float height = std::max(candidate.backtrack_maxs.z - candidate.backtrack_mins.z, 1.0f);
-  Vec3 mins = candidate.backtrack_mins;
-  Vec3 maxs = candidate.backtrack_maxs;
-
+  float horizontal_radius = 5.0f;
+  float vertical_radius = 6.0f;
   switch (candidate.hitbox) {
   case aim_hitbox_head:
-    mins.z = center.z + (height * 0.22f);
+    horizontal_radius = 3.25f;
+    vertical_radius = 3.25f;
     break;
   case aim_hitbox_pelvis:
   case aim_hitbox_spine_0:
-    maxs.z = center.z + (height * 0.08f);
+    horizontal_radius = 6.0f;
+    vertical_radius = 5.0f;
     break;
   case aim_hitbox_left_thigh:
   case aim_hitbox_left_calf:
@@ -688,14 +689,15 @@ inline bool hitscan_aim_trace_backtrack_candidate(const aimbot_candidate& candid
   case aim_hitbox_right_thigh:
   case aim_hitbox_right_calf:
   case aim_hitbox_right_foot:
-    maxs.z = center.z;
+    horizontal_radius = 4.0f;
+    vertical_radius = 5.0f;
     break;
   default:
-    mins.z = candidate.backtrack_mins.z + (height * 0.26f);
-    maxs.z = candidate.backtrack_mins.z + (height * 0.82f);
     break;
   }
 
+  const Vec3 mins = candidate.aim_position - Vec3{horizontal_radius, horizontal_radius, vertical_radius};
+  const Vec3 maxs = candidate.aim_position + Vec3{horizontal_radius, horizontal_radius, vertical_radius};
   return aimbot_segment_intersects_aabb(start_pos, end_pos, mins, maxs);
 }
 

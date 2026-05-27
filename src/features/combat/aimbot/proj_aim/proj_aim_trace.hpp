@@ -302,10 +302,9 @@ inline bool proj_aim_trace_path_segment_loop(Player* localplayer,
   Weapon* weapon,
   const projectile_sim_profile& sim_profile,
   const LocalPredictionInterceptResult& intercept,
-  const std::vector<LocalPredictionProjectileStep>& steps,
+  const LocalPredictionProjectileStep* steps,
   size_t step_count) {
-  if (localplayer == nullptr || target == nullptr || weapon == nullptr || engine_trace == nullptr || steps.size() < 2 || step_count < 2 ||
-      step_count > steps.size()) {
+  if (localplayer == nullptr || target == nullptr || weapon == nullptr || engine_trace == nullptr || steps == nullptr || step_count < 2) {
     return false;
   }
 
@@ -352,6 +351,54 @@ inline bool proj_aim_trace_path_segment_loop(Player* localplayer,
   }
 
   return false;
+}
+
+inline bool proj_aim_trace_path_segment_loop(Player* localplayer,
+  Player* target,
+  Weapon* weapon,
+  const projectile_sim_profile& sim_profile,
+  const LocalPredictionInterceptResult& intercept,
+  const std::vector<LocalPredictionProjectileStep>& steps,
+  size_t step_count) {
+  if (step_count > steps.size()) {
+    return false;
+  }
+  return proj_aim_trace_path_segment_loop(localplayer, target, weapon, sim_profile, intercept, steps.data(), step_count);
+}
+
+inline bool proj_aim_profile_uses_straight_direct_trace(const projectile_sim_profile& sim_profile) {
+  return sim_profile.valid &&
+    sim_profile.params.gravity == 0.0f &&
+    sim_profile.initial_lift == 0.0f &&
+    sim_profile.drag == 0.0f &&
+    local_prediction_vec3_is_zero(sim_profile.angular_velocity) &&
+    sim_profile.velocity_mode == projectile_sim_velocity_mode::forward;
+}
+
+inline bool proj_aim_trace_straight_direct_path(Player* localplayer,
+  Player* target,
+  Weapon* weapon,
+  const projectile_sim_profile& sim_profile,
+  const projectile_sim_launch& launch,
+  const LocalPredictionInterceptResult& intercept) {
+  if (!launch.valid || !intercept.valid || intercept.intercept_time <= 0.0f) {
+    return false;
+  }
+
+  const Vec3 end = projectile_sim_position_at_time(launch, sim_profile, intercept.intercept_time);
+  std::array<LocalPredictionProjectileStep, 2> steps{{
+    LocalPredictionProjectileStep{
+      .time = 0.0f,
+      .position = launch.origin,
+      .velocity = projectile_sim_initial_velocity(launch, sim_profile)
+    },
+    LocalPredictionProjectileStep{
+      .time = intercept.intercept_time,
+      .position = end,
+      .velocity = Vec3{}
+    }
+  }};
+  return proj_aim_trace_path_segment_loop(localplayer, target, weapon, sim_profile, intercept, steps.data(), steps.size());
 }
 
 inline bool proj_aim_intercept_trace_matches_launch(const projectile_sim_launch& launch,
@@ -432,6 +479,10 @@ inline bool proj_aim_trace_path(Player* localplayer,
     return false;
   }
 
+  if (proj_aim_profile_uses_straight_direct_trace(sim_profile)) {
+    return proj_aim_trace_straight_direct_path(localplayer, target, weapon, sim_profile, launch, intercept);
+  }
+
   size_t reuse_step_count = 0;
   if (proj_aim_intercept_trace_matches_launch(launch, intercept, sim_profile, &reuse_step_count)) {
     ++proj_aim_budget().reuse_trace_hits;
@@ -483,6 +534,10 @@ inline bool proj_aim_trace_simple_path(Player* localplayer,
   const projectile_sim_launch launch = proj_aim_launch_from_intercept(localplayer, weapon, intercept, sim_profile);
   if (!launch.valid || intercept.intercept_time <= 0.0f) {
     return false;
+  }
+
+  if (proj_aim_profile_uses_straight_direct_trace(sim_profile)) {
+    return proj_aim_trace_straight_direct_path(localplayer, target, weapon, sim_profile, launch, intercept);
   }
 
   const projectile_sim_result sim_result = projectile_sim_run(
