@@ -16,6 +16,8 @@ V  o o  V  file: src/core/player_manager.cpp
 #include "games/tf2/sdk/entities/player.hpp"
 #include "games/tf2/sdk/interfaces/engine.hpp"
 #include "games/tf2/sdk/interfaces/entity_list.hpp"
+#include "games/tf2/sdk/interfaces/global_vars.hpp"
+#include "games/tf2/sdk/netvars.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -113,6 +115,39 @@ void set_runtime_state(std::uint32_t account_id, player_state state, std::string
   runtime_players[account_id] = stored_player{state, sanitize_name(name)};
 }
 
+[[nodiscard]] Entity* get_player_resource_entity()
+{
+  if (entity_list == nullptr)
+  {
+    return nullptr;
+  }
+
+  const int max_entities = entity_list->get_max_entities();
+  for (int index = 1; index <= max_entities; ++index)
+  {
+    auto* entity = entity_list->entity_from_index(index);
+    if (entity != nullptr && entity->get_class_id() == class_id::PLAYER_RESOURCE)
+    {
+      return entity;
+    }
+  }
+
+  return nullptr;
+}
+
+template <typename value_type>
+[[nodiscard]] value_type read_player_resource_value(Entity* player_resource, int array_offset, int player_index)
+{
+  if (player_resource == nullptr || player_index <= 0)
+  {
+    return {};
+  }
+
+  const auto base = reinterpret_cast<std::uintptr_t>(player_resource);
+  const auto entry_offset = static_cast<std::uintptr_t>(array_offset) + (static_cast<std::uintptr_t>(player_index) * sizeof(value_type));
+  return *reinterpret_cast<value_type*>(base + entry_offset);
+}
+
 } // namespace
 
 void initialize()
@@ -131,6 +166,7 @@ void tick()
 {
   if (engine == nullptr ||
       entity_list == nullptr ||
+      global_vars == nullptr ||
       !engine->is_connected() ||
       !engine->is_in_game() ||
       engine->is_drawing_loading_image())
@@ -138,14 +174,26 @@ void tick()
     return;
   }
 
+  auto* player_resource = get_player_resource_entity();
+  if (player_resource == nullptr)
+  {
+    return;
+  }
+
+  static const int connected_offset = tf2_netvars::find_offset("DT_TFPlayerResource", { "baseclass", "m_bConnected" });
+  if (connected_offset <= 0)
+  {
+    return;
+  }
+
   std::lock_guard lock{player_mutex};
   runtime_players.clear();
 
-  const int max_entities = entity_list->get_max_entities();
-  for (int index = 1; index <= max_entities; ++index)
+  const int max_clients = global_vars->max_clients;
+  for (int index = 1; index <= max_clients; ++index)
   {
-    auto* player = entity_list->player_from_index(index);
-    if (player == nullptr || player->get_class_id() != class_id::PLAYER)
+    const bool is_connected = read_player_resource_value<bool>(player_resource, connected_offset, index);
+    if (!is_connected)
     {
       continue;
     }

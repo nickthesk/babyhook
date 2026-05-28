@@ -18,6 +18,8 @@ V  o o  V  file: src/features/menu/player_window.hpp
 #include "games/tf2/sdk/entities/player.hpp"
 #include "games/tf2/sdk/interfaces/engine.hpp"
 #include "games/tf2/sdk/interfaces/entity_list.hpp"
+#include "games/tf2/sdk/interfaces/global_vars.hpp"
+#include "games/tf2/sdk/netvars.hpp"
 #include "games/tf2/sdk/interfaces/steam_friends.hpp"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
@@ -47,21 +49,72 @@ struct player_row
   bool ipc_friend = false;
 };
 
+namespace
+{
+
+inline Entity* get_player_resource_entity()
+{
+  if (entity_list == nullptr)
+  {
+    return nullptr;
+  }
+
+  const int max_entities = entity_list->get_max_entities();
+  for (int index = 1; index <= max_entities; ++index)
+  {
+    auto* entity = entity_list->entity_from_index(index);
+    if (entity != nullptr && entity->get_class_id() == class_id::PLAYER_RESOURCE)
+    {
+      return entity;
+    }
+  }
+
+  return nullptr;
+}
+
+template <typename value_type>
+inline value_type read_player_resource_value(Entity* player_resource, int array_offset, int player_index)
+{
+  if (player_resource == nullptr || player_index <= 0)
+  {
+    return {};
+  }
+
+  const auto base = reinterpret_cast<std::uintptr_t>(player_resource);
+  const auto entry_offset = static_cast<std::uintptr_t>(array_offset) + (static_cast<std::uintptr_t>(player_index) * sizeof(value_type));
+  return *reinterpret_cast<value_type*>(base + entry_offset);
+}
+
+} // namespace
+
 inline std::vector<player_row> collect_player_rows() {
   std::vector<player_row> rows{};
-  if (engine == nullptr || entity_list == nullptr) {
+  if (engine == nullptr || entity_list == nullptr || global_vars == nullptr) {
     return rows;
   }
   if (!engine->is_connected() || !engine->is_in_game() || engine->is_drawing_loading_image()) {
     return rows;
   }
 
+  auto* player_resource = get_player_resource_entity();
+  if (player_resource == nullptr) {
+    return rows;
+  }
+
+  static const int connected_offset = tf2_netvars::find_offset("DT_TFPlayerResource", { "baseclass", "m_bConnected" });
+  static const int team_offset = tf2_netvars::find_offset("DT_TFPlayerResource", { "baseclass", "m_iTeam" });
+  static const int alive_offset = tf2_netvars::find_offset("DT_TFPlayerResource", { "baseclass", "m_bAlive" });
+
+  if (connected_offset <= 0 || team_offset <= 0 || alive_offset <= 0) {
+    return rows;
+  }
+
   const int local_index = engine->get_localplayer_index();
-  const int max_entities = entity_list->get_max_entities();
-  rows.reserve(32);
-  for (int index = 1; index <= max_entities; ++index) {
-    auto* player = entity_list->player_from_index(index);
-    if (player == nullptr || player->get_class_id() != class_id::PLAYER) {
+  const int max_clients = global_vars->max_clients;
+  rows.reserve(max_clients);
+  for (int index = 1; index <= max_clients; ++index) {
+    const bool is_connected = read_player_resource_value<bool>(player_resource, connected_offset, index);
+    if (!is_connected) {
       continue;
     }
 
@@ -75,8 +128,8 @@ inline std::vector<player_row> collect_player_rows() {
     row.user_id = pinfo.user_id;
     row.account_id = static_cast<std::uint32_t>(pinfo.friends_id);
     row.name = pinfo.name;
-    row.team = player->get_team();
-    row.alive = player->is_alive();
+    row.team = static_cast<tf_team>(read_player_resource_value<int>(player_resource, team_offset, index));
+    row.alive = read_player_resource_value<bool>(player_resource, alive_offset, index);
     row.local = (index == local_index);
     row.fake = pinfo.fakeplayer;
 
