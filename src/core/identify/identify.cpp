@@ -3,7 +3,6 @@
 #include "core/identify/identify_client.hpp"
 
 #include "core/commands.hpp"
-#include "core/logger.hpp"
 #include "core/player_manager.hpp"
 #include "core/print.hpp"
 
@@ -17,8 +16,6 @@
 
 #include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
@@ -51,11 +48,6 @@ std::unordered_map<std::uint32_t, int> betrayals;
 
 std::mutex                                       chat_mu;
 std::vector<std::pair<std::string, std::string>> chat_queue;
-
-std::filesystem::path betrayals_path()
-{
-  return cathook::core::config_directory() / "identify_betrayals.txt";
-}
 
 std::string player_hash(std::uint32_t friends_id, const char* name)
 {
@@ -97,17 +89,6 @@ std::string local_player_hash()
   if (!engine->get_player_info(local_idx, &info) || info.friends_id == 0)
     return "";
   return player_hash(static_cast<std::uint32_t>(info.friends_id), info.name);
-}
-
-void save_betrayals_locked()
-{
-  std::error_code ec;
-  std::filesystem::create_directories(cathook::core::config_directory(), ec);
-  std::ofstream f(betrayals_path(), std::ios::trunc);
-  if (!f.is_open())
-    return;
-  for (const auto& [fid, count] : betrayals)
-    f << fid << ':' << count << '\n';
 }
 
 void on_peers(const std::vector<std::string>& hashes)
@@ -220,7 +201,6 @@ void start()
   {
     std::lock_guard lk{betrayals_mu};
     betrayals.clear();
-    save_betrayals_locked();
   }
 
   client = new IdentifyClient();
@@ -308,7 +288,6 @@ void on_player_death(int attacker_user_id)
   {
     std::lock_guard lk{betrayals_mu};
     count = ++betrayals[account_id];
-    save_betrayals_locked();
   }
   if (count >= BETRAYAL_LIMIT)
     print("[identify] %u betrayed %d times; no longer identifying\n", account_id, count);
@@ -318,7 +297,6 @@ void clear_betrayals()
 {
   std::lock_guard lk{betrayals_mu};
   betrayals.clear();
-  save_betrayals_locked();
 }
 
 } // namespace cathook::core::identify
