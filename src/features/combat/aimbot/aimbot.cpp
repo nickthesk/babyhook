@@ -73,6 +73,19 @@ bool weapon_allows_primary_fire(Player* localplayer, Weapon* weapon) {
     (localplayer->is_scoped() || weapon->get_def_id() != Sniper_m_TheMachina);
 }
 
+bool melee_swing_active(Player* localplayer, Weapon* weapon) {
+  if (localplayer == nullptr || weapon == nullptr || !aimbot_is_melee_weapon(weapon)) {
+    return false;
+  }
+
+  constexpr float max_active_swing_time = 0.5f;
+  const float current_time = global_vars != nullptr
+    ? global_vars->curtime
+    : localplayer->get_tickbase() * static_cast<float>(TICK_INTERVAL);
+  const float smack_time = weapon->get_smack_time();
+  return smack_time > current_time && smack_time - current_time <= max_active_swing_time;
+}
+
 void apply_visible_view(user_cmd* cmd) {
   if (cmd == nullptr || config.aimbot.aim_mode == Aim::AimMode::PSILENT) {
     return;
@@ -408,12 +421,13 @@ void compute_readiness(aimbot_run_context& ctx) {
     !(ctx.projectile && aim_auto_shoot::weapon_should_clear_secondary(ctx.weapon));
   ctx.readiness.primary = weapon_allows_primary_fire(ctx.local, ctx.weapon) && !secondary_blocks_attack;
   ctx.readiness.attack = ctx.target.entity != nullptr &&
-    aim_auto_shoot::weapon_can_attack_or_release(ctx.local, ctx.weapon);
+    (aim_auto_shoot::weapon_can_attack_or_release(ctx.local, ctx.weapon) ||
+      melee_swing_active(ctx.local, ctx.weapon));
   if (ctx.projectile) {
     ctx.debug.final_trace_hit = ctx.readiness.trace;
   }
 
-  if (!ctx.readiness.headshot || !ctx.readiness.charge || !ctx.readiness.trace || !ctx.readiness.settled || !ctx.readiness.primary) {
+  if (!ctx.readiness.ready()) {
     if (ctx.hitscan || ctx.melee) {
       ctx.cmd->buttons &= ~IN_ATTACK;
     }
@@ -424,15 +438,7 @@ void compute_readiness(aimbot_run_context& ctx) {
 }
 
 void apply_auto_shoot(aimbot_run_context& ctx) {
-  const bool melee_hold_ready = ctx.melee &&
-    ctx.target.entity != nullptr &&
-    ctx.readiness.headshot &&
-    ctx.readiness.charge &&
-    ctx.readiness.trace &&
-    ctx.readiness.settled &&
-    ctx.readiness.primary;
-
-  if (config.aimbot.auto_shoot && (ctx.readiness.ready() || melee_hold_ready)) {
+  if (config.aimbot.auto_shoot && ctx.readiness.ready()) {
     ctx.auto_shoot = aim_auto_shoot::apply(ctx.cmd, ctx.weapon, ctx.projectile, ctx.hitscan, ctx.melee);
     set_requested_shot(ctx.auto_shoot.requested);
     aim_state::requested_shot = ctx.auto_shoot.requested;

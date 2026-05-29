@@ -92,6 +92,7 @@ struct projectile_sim_profile {
   float lifetime = 0.0f;
   float initial_lift = 0.0f;
   float drag = 0.0f;
+  float upward_velocity = 0.0f;
   float forward_redirect = 0.0f;
   float forward_cutoff = 0.0f;
   Vec3 drag_basis{};

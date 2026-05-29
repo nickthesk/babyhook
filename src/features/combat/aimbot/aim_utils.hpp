@@ -27,6 +27,7 @@ V  o o  V  file: src/features/combat/aimbot/aim_utils.hpp
 #include "core/math/math.hpp"
 
 #include "features/automation/nographics/nographics.hpp"
+#include "features/combat/aimbot/projectile/projectile_live_data.hpp"
 #include "features/menu/config.hpp"
 #include "features/movement/local_prediction/move_sim.hpp"
 
@@ -1661,7 +1662,14 @@ inline aimbot_candidate aimbot_find_non_player_candidate(Player* localplayer,
   }
 
   const Vec3 target_position = aimbot_entity_target_position(entity);
-  const Vec3 aim_angles = aimbot_calculate_angles_to_position(localplayer->get_shoot_pos(), target_position);
+  const Vec3 shoot_pos = localplayer->get_shoot_pos();
+  const Vec3 aim_angles = aimbot_calculate_angles_to_position(shoot_pos, target_position);
+  if (weapon->is_flamethrower()) {
+    const float hull_radius = projectile_flamethrower_hull_radius(weapon);
+    if (distance_3d(shoot_pos, target_position) > projectile_flamethrower_effective_range(weapon) + hull_radius) {
+      return candidate;
+    }
+  }
   if (weapon->is_melee() && !aimbot_entity_melee_reachable(localplayer, weapon, entity, aim_angles)) {
     return candidate;
   }
@@ -1868,6 +1876,7 @@ inline bool aimbot_wait_for_charge_ready(Player* localplayer,
 
 inline bool aimbot_is_projectile_weapon(Weapon* weapon) {
   if (weapon == nullptr) return false;
+  if (weapon->is_flamethrower()) return true;
 
   switch (weapon->get_def_id()) {
   case Soldier_m_RocketLauncher:

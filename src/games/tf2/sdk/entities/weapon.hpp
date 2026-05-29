@@ -843,6 +843,37 @@ public:
     const auto weapon_def_id = this->get_def_id();
 
     switch (weapon_def_id) {
+    case Pyro_m_FlameThrower:
+    case Pyro_m_FlameThrowerR:
+    case Pyro_m_TheBackburner:
+    case Pyro_m_TheDegreaser:
+    case Pyro_m_ThePhlogistinator:
+    case Pyro_m_FestiveFlameThrower:
+    case Pyro_m_TheRainblower:
+    case Pyro_m_SilverBotkillerFlameThrowerMkI:
+    case Pyro_m_GoldBotkillerFlameThrowerMkI:
+    case Pyro_m_RustBotkillerFlameThrowerMkI:
+    case Pyro_m_BloodBotkillerFlameThrowerMkI:
+    case Pyro_m_CarbonadoBotkillerFlameThrowerMkI:
+    case Pyro_m_DiamondBotkillerFlameThrowerMkI:
+    case Pyro_m_SilverBotkillerFlameThrowerMkII:
+    case Pyro_m_GoldBotkillerFlameThrowerMkII:
+    case Pyro_m_FestiveBackburner:
+    case Pyro_m_ForestFire:
+    case Pyro_m_BarnBurner:
+    case Pyro_m_BovineBlazemaker:
+    case Pyro_m_EarthSkyandFire:
+    case Pyro_m_FlashFryer:
+    case Pyro_m_TurbineTorcher:
+    case Pyro_m_Autumn:
+    case Pyro_m_PumpkinPatch:
+    case Pyro_m_Nutcracker:
+    case Pyro_m_Balloonicorn:
+    case Pyro_m_Rainbow:
+    case Pyro_m_CoffinNail:
+    case Pyro_m_Warhawk:
+    case Pyro_m_NostromoNapalmer:
+      return TF_WEAPON_FLAMETHROWER;
     case Heavy_m_Minigun:
     case Heavy_m_MinigunR:
     case Heavy_m_Natascha:
@@ -1118,6 +1149,10 @@ public:
 
   bool is_minigun(void) {
     return this->get_weapon_id() == TF_WEAPON_MINIGUN;
+  }
+
+  bool is_flamethrower() {
+    return this->get_weapon_id() == TF_WEAPON_FLAMETHROWER;
   }
 
   bool is_medigun() {

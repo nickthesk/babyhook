@@ -93,6 +93,10 @@ inline float proj_aim_hull_radius_for_weapon(Weapon* weapon) {
     return 2.0f;
   }
 
+  if (weapon->is_flamethrower()) {
+    return projectile_flamethrower_hull_radius(weapon);
+  }
+
   switch (weapon->get_def_id()) {
   case Soldier_m_RocketLauncher:
   case Soldier_m_RocketLauncherR:

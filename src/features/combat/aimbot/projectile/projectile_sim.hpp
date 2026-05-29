@@ -23,6 +23,10 @@ inline Vec3 local_prediction_projectile_offset_for_weapon(Player* localplayer, W
     return Vec3{};
   }
 
+  if (weapon->is_flamethrower()) {
+    return Vec3{0.0f, 12.0f, 0.0f};
+  }
+
   const bool ducking = localplayer->is_ducking();
   switch (weapon->get_def_id()) {
   case Soldier_m_TheCowMangler5000:
@@ -166,6 +170,13 @@ inline LocalPredictionProjectileParameters local_prediction_projectile_parameter
   const auto attribute_value = [weapon](float base_value, const char* attribute_name) {
     return projectile_attr_float(weapon, base_value, attribute_name);
   };
+
+  if (weapon->is_flamethrower()) {
+    params.speed = std::clamp(projectile_flamethrower_speed(weapon), 1.0f, 5000.0f);
+    params.gravity = 0.0f;
+    params.max_time = std::clamp(projectile_flamethrower_lifetime(weapon), static_cast<float>(TICK_INTERVAL), 3.0f);
+    return params;
+  }
 
   switch (weapon->get_def_id()) {
   case Soldier_m_RocketLauncher:
@@ -589,6 +600,11 @@ inline Vec3 projectile_sim_hull_for_weapon(Weapon* weapon) {
     return Vec3{2.0f, 2.0f, 2.0f};
   }
 
+  if (weapon->is_flamethrower()) {
+    const float hull = projectile_flamethrower_hull_radius(weapon);
+    return Vec3{hull, hull, hull};
+  }
+
   switch (weapon->get_def_id()) {
   case Soldier_m_RocketLauncher:
   case Soldier_m_RocketLauncherR:
@@ -697,6 +713,13 @@ inline projectile_sim_profile projectile_sim_profile_for_weapon(Player* localpla
   profile.lifetime = profile.params.max_time;
   profile.initial_lift = projectile_sim_is_grenade_like_weapon(weapon) ? 200.0f : 0.0f;
   profile.drag = projectile_sim_drag_for_weapon(weapon, profile.params.speed);
+  if (weapon->is_flamethrower()) {
+    const float tick_interval = profile.params.time_step > 0.0f
+      ? profile.params.time_step
+      : static_cast<float>(TICK_INTERVAL);
+    profile.drag = (1.0f - projectile_flamethrower_drag_factor()) / std::max(tick_interval, 0.0001f);
+    profile.upward_velocity = projectile_flamethrower_upward_velocity();
+  }
   profile.drag_basis = projectile_sim_drag_basis_for_weapon(weapon);
   profile.angular_drag_basis = projectile_sim_angular_drag_basis_for_weapon(weapon);
   profile.angular_velocity = projectile_sim_angular_velocity_for_weapon(weapon);
@@ -712,6 +735,11 @@ inline projectile_sim_profile projectile_sim_profile_for_weapon(Player* localpla
     profile.forward_redirect = std::max(profile.params.speed * profile.params.max_time, 1.0f);
     profile.forward_cutoff = 1.0f;
   }
+  if (weapon->is_flamethrower()) {
+    profile.fire_setup_mode = projectile_sim_fire_setup_mode::pipe_style;
+    profile.forward_redirect = 0.0f;
+    profile.forward_cutoff = 0.0f;
+  }
   profile.spawn_trace_mode = profile.fire_setup_mode == projectile_sim_fire_setup_mode::pipe_style
     ? projectile_sim_spawn_trace_mode::hull
     : projectile_sim_spawn_trace_mode::line;
@@ -721,8 +749,14 @@ inline projectile_sim_profile projectile_sim_profile_for_weapon(Player* localpla
   profile.spawn_trace_maxs = profile.fire_setup_mode == projectile_sim_fire_setup_mode::pipe_style
     ? Vec3{8.0f, 8.0f, 8.0f}
     : Vec3{};
+  if (weapon->is_flamethrower()) {
+    profile.spawn_trace_mode = projectile_sim_spawn_trace_mode::none;
+    profile.spawn_trace_mins = Vec3{};
+    profile.spawn_trace_maxs = Vec3{};
+  }
   profile.physics_sim = physics != nullptr &&
     physics_collision != nullptr &&
+    !weapon->is_flamethrower() &&
     (profile.drag > 0.0f ||
       profile.drag_basis.x != 0.0f ||
       profile.drag_basis.y != 0.0f ||
@@ -1088,7 +1122,7 @@ inline bool projectile_simulation::init(const projectile_sim_launch& launch_in,
   result.steps.emplace_back(projectile_sim_step{
     .time = 0.0f,
     .position = position,
-    .velocity = velocity
+    .velocity = velocity + Vec3{0.0f, 0.0f, profile.upward_velocity}
   });
   initialized = true;
   result.valid = true;
@@ -1113,10 +1147,11 @@ inline bool projectile_simulation::step() {
     return !finished;
   }
 
+  const Vec3 step_velocity = velocity + Vec3{0.0f, 0.0f, profile.upward_velocity};
   const Vec3 next_position{
-    position.x + (velocity.x * dt),
-    position.y + (velocity.y * dt),
-    position.z + (velocity.z * dt) - (0.5f * profile.params.gravity * dt * dt)
+    position.x + (step_velocity.x * dt),
+    position.y + (step_velocity.y * dt),
+    position.z + (step_velocity.z * dt) - (0.5f * profile.params.gravity * dt * dt)
   };
 
   trace_t trace{};
@@ -1131,7 +1166,7 @@ inline bool projectile_simulation::step() {
     result.steps.emplace_back(projectile_sim_step{
       .time = hit_time,
       .position = trace.endpos,
-      .velocity = velocity,
+      .velocity = step_velocity,
       .trace = trace,
       .hit = true,
       .hit_target = hit_target
@@ -1158,7 +1193,7 @@ inline bool projectile_simulation::step() {
   result.steps.emplace_back(projectile_sim_step{
     .time = time,
     .position = position,
-    .velocity = velocity
+    .velocity = step_velocity
   });
   return true;
 }
@@ -1199,6 +1234,7 @@ inline Vec3 projectile_sim_direction_for_time(const projectile_sim_launch& launc
   Vec3 needed_velocity = (target_position - launch.origin) * (1.0f / travel_time);
   needed_velocity -= launch.inherited_velocity;
   needed_velocity.z -= profile.initial_lift;
+  needed_velocity.z -= profile.upward_velocity;
   needed_velocity.z += 0.5f * profile.params.gravity * travel_time;
 
   return local_prediction_normalize(needed_velocity);
@@ -1211,7 +1247,7 @@ inline Vec3 projectile_sim_position_at_time(const projectile_sim_launch& launch,
   return Vec3{
     launch.origin.x + (velocity.x * travel_time),
     launch.origin.y + (velocity.y * travel_time),
-    launch.origin.z + (velocity.z * travel_time) - (0.5f * profile.params.gravity * travel_time * travel_time)
+    launch.origin.z + ((velocity.z + profile.upward_velocity) * travel_time) - (0.5f * profile.params.gravity * travel_time * travel_time)
   };
 }
 

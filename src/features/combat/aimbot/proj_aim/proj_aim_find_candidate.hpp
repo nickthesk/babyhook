@@ -96,6 +96,134 @@ inline LocalPredictionEntityPath proj_aim_simple_debug_path(Player* target,
   return path;
 }
 
+inline bool proj_aim_flamethrower_trace(Player* localplayer,
+  Weapon* weapon,
+  Player* target,
+  const projectile_sim_launch& launch,
+  const Vec3& target_position,
+  float hull_radius) {
+  if (localplayer == nullptr || weapon == nullptr || target == nullptr || !launch.valid || hull_radius <= 0.0f) {
+    return false;
+  }
+
+  const Vec3 hull{hull_radius, hull_radius, hull_radius};
+  const Vec3 mins = hull * -1.0f;
+  const Vec3 maxs = hull;
+  trace_t trace{};
+  if (!projectile_trace_ray(
+      launch.origin,
+      target_position,
+      &mins,
+      &maxs,
+      projectile_trace_contract::direct_target,
+      localplayer->to_entity(),
+      static_cast<int>(localplayer->get_team()),
+      &trace,
+      target->to_entity())) {
+    return false;
+  }
+
+  return trace.entity == target || projectile_trace_clear(trace, 0.97f);
+}
+
+inline aimbot_candidate proj_aim_find_flamethrower_candidate(Player* localplayer,
+  Weapon* weapon,
+  Player* player,
+  const Vec3& original_view_angles) {
+  aimbot_candidate candidate{};
+  if (localplayer == nullptr || weapon == nullptr || player == nullptr || !weapon->is_flamethrower()) {
+    return candidate;
+  }
+
+  const projectile_sim_profile sim_profile = projectile_sim_profile_for_weapon(localplayer, weapon);
+  if (!sim_profile.valid || sim_profile.params.speed <= 0.0f) {
+    return candidate;
+  }
+
+  const float flame_range = projectile_flamethrower_effective_range(weapon);
+  const float hull_radius = projectile_flamethrower_hull_radius(weapon);
+  const float lifetime = std::max(projectile_flamethrower_lifetime(weapon), static_cast<float>(TICK_INTERVAL));
+  const float effective_speed = std::max(flame_range / lifetime, 1.0f);
+  const Vec3 target_velocity = proj_aim_simple_target_velocity(player);
+  const uint32_t hitbox_mask = proj_aim_effective_hitbox_mask(localplayer, weapon, player);
+  std::array<proj_aim_direct_point, 3> direct_points{};
+  const size_t direct_point_count = proj_aim_simple_direct_points(localplayer, weapon, player, hitbox_mask, direct_points);
+  const Vec3 shoot_pos = localplayer->get_shoot_pos();
+
+  int best_priority = INT_MAX;
+  for (size_t point_index = 0; point_index < direct_point_count; ++point_index) {
+    const proj_aim_direct_point& sample = direct_points[point_index];
+    const Vec3 base_origin = player->get_origin();
+    const Vec3 initial_target = base_origin + sample.offset;
+    const float initial_distance = distance_3d(shoot_pos, initial_target);
+    if (initial_distance > flame_range + hull_radius + 32.0f) {
+      continue;
+    }
+
+    const float travel_time = std::clamp(initial_distance / effective_speed, static_cast<float>(TICK_INTERVAL), lifetime);
+    const Vec3 predicted_base = base_origin + (target_velocity * travel_time);
+    const Vec3 predicted_target = predicted_base + sample.offset;
+    Vec3 aim_angles = aimbot_calculate_angles_to_position(shoot_pos, predicted_target);
+    projectile_sim_launch launch{};
+    for (int pass = 0; pass < 2; ++pass) {
+      launch = projectile_sim_build_launch_from_angles(localplayer, weapon, aim_angles, sim_profile);
+      if (!launch.valid) {
+        break;
+      }
+      aim_angles = aimbot_calculate_angles_to_position(launch.origin, predicted_target);
+    }
+
+    if (!launch.valid) {
+      continue;
+    }
+
+    const float launch_distance = distance_3d(launch.origin, predicted_target);
+    if (launch_distance > flame_range + hull_radius) {
+      continue;
+    }
+
+    const float fov = aimbot_calculate_fov(aim_angles, original_view_angles);
+    if (!aimbot_fov_within_limit(fov, 1.2f, 3.0f)) {
+      continue;
+    }
+
+    if (!proj_aim_flamethrower_trace(localplayer, weapon, player, launch, predicted_target, hull_radius)) {
+      continue;
+    }
+
+    aimbot_candidate point_candidate{};
+    point_candidate.entity = player;
+    point_candidate.player = player;
+    point_candidate.preferred = aimbot::has_preference(player);
+    point_candidate.bone = sample.bone;
+    point_candidate.hitbox = sample.hitbox;
+    point_candidate.studio_hitbox = sample.studio_hitbox;
+    point_candidate.aim_position = predicted_target;
+    point_candidate.aim_angles = aim_angles;
+    point_candidate.fov = fov;
+    point_candidate.distance = launch_distance;
+    point_candidate.health = player->get_health();
+    point_candidate.visible = true;
+    point_candidate.projectile_direct = true;
+    point_candidate.projectile_has_target_base_origin = true;
+    point_candidate.projectile_intercept_time = travel_time;
+    point_candidate.projectile_miss_distance = 0.0f;
+    point_candidate.projectile_target_base_origin = predicted_base;
+    point_candidate.projectile_target_offset = sample.offset;
+
+    if (candidate.entity == nullptr ||
+        sample.priority < best_priority ||
+        (sample.priority == best_priority && point_candidate.fov < candidate.fov) ||
+        (sample.priority == best_priority && std::fabs(point_candidate.fov - candidate.fov) <= 0.01f &&
+          point_candidate.distance < candidate.distance)) {
+      best_priority = sample.priority;
+      candidate = point_candidate;
+    }
+  }
+
+  return candidate;
+}
+
 inline LocalPredictionInterceptResult proj_aim_simple_projectile_intercept(Player* localplayer,
   Weapon* weapon,
   const proj_aim_weapon_profile& weapon_profile,
@@ -231,6 +359,10 @@ inline aimbot_candidate proj_aim_find_simple_candidate(Player* localplayer,
   aimbot_candidate candidate{};
   if (localplayer == nullptr || weapon == nullptr || player == nullptr) {
     return candidate;
+  }
+
+  if (weapon->is_flamethrower()) {
+    return proj_aim_find_flamethrower_candidate(localplayer, weapon, player, original_view_angles);
   }
 
   const proj_aim_weapon_profile profile = proj_aim_profile_for_weapon(weapon);
@@ -393,6 +525,10 @@ inline LocalPredictionEntityPath proj_aim_predict_target_path(Player*,
 inline aimbot_candidate proj_aim_find_candidate(Player* localplayer, Weapon* weapon, Player* player, user_cmd* user_cmd, const Vec3& original_view_angles) {
   aimbot_candidate candidate{};
   if (localplayer == nullptr || weapon == nullptr || player == nullptr || user_cmd == nullptr) return candidate;
+
+  if (weapon->is_flamethrower()) {
+    return proj_aim_find_flamethrower_candidate(localplayer, weapon, player, original_view_angles);
+  }
 
   if (aimbot_simple_simulation_enabled()) {
     return proj_aim_find_simple_candidate(localplayer, weapon, player, user_cmd, original_view_angles);

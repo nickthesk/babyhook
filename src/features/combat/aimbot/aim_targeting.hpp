@@ -417,6 +417,15 @@ inline bool projectile_solution_ready(Player* localplayer,
   projectile_sim_profile profile = projectile_sim_profile_for_weapon(localplayer, weapon);
   if (!profile.valid || profile.params.speed <= 0.0f || candidate.projectile_intercept_time <= 0.0f) return false;
 
+  if (weapon->is_flamethrower()) {
+    const projectile_sim_launch launch = projectile_sim_build_launch_from_angles(localplayer, weapon, applied_view_angles, profile);
+    const float hull_radius = projectile_flamethrower_hull_radius(weapon);
+    if (!launch.valid || distance_3d(launch.origin, candidate.aim_position) > projectile_flamethrower_effective_range(weapon) + hull_radius) {
+      return false;
+    }
+    return proj_aim_flamethrower_trace(localplayer, weapon, candidate.player, launch, candidate.aim_position, hull_radius);
+  }
+
   LocalPredictionInterceptResult adjusted_intercept{};
   adjusted_intercept.valid = true;
   adjusted_intercept.has_target_base_origin = candidate.projectile_has_target_base_origin;

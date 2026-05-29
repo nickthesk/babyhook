@@ -298,16 +298,15 @@ inline swing_sample_set build_target_samples_simple(Player* target, float swing_
   const Vec3 mins = target->get_player_mins(target->is_ducking());
   const Vec3 maxs = target->get_player_maxs(target->is_ducking());
   const Vec3 origin = target->get_origin();
-  add_swing_sample(&out, target, origin, mins, maxs, 0.0f);
-
-  const float effective_horizon = std::max(swing_time, static_cast<float>(TICK_INTERVAL));
+  const float effective_horizon = swing_time > 0.001f
+    ? std::max(swing_time, static_cast<float>(TICK_INTERVAL))
+    : 0.0f;
   const Vec3 velocity = player_velocity(target);
+  Vec3 sample_origin = origin;
   if (effective_horizon > 0.001f && local_prediction_vector_length(velocity) > 0.001f) {
-    const Vec3 predicted_origin = origin + (velocity * effective_horizon);
-    if (aimbot_distance_squared(origin, predicted_origin) > 0.01f) {
-      add_swing_sample(&out, target, predicted_origin, mins, maxs, effective_horizon);
-    }
+    sample_origin = origin + (velocity * effective_horizon);
   }
+  add_swing_sample(&out, target, sample_origin, mins, maxs, effective_horizon);
 
   return out;
 }
@@ -318,8 +317,22 @@ inline std::vector<swing_sample> build_target_samples(Player* target, float swin
     return out;
   }
 
-  const float effective_horizon = std::max(swing_time, static_cast<float>(TICK_INTERVAL));
-  move_sim::path path = move_sim::predict_entity_path(target, effective_horizon, false, true);
+  const float effective_horizon = swing_time > 0.001f
+    ? std::max(swing_time, static_cast<float>(TICK_INTERVAL))
+    : 0.0f;
+  if (effective_horizon <= 0.001f) {
+    swing_sample sample{};
+    sample.valid = true;
+    sample.origin = target->get_origin();
+    sample.mins = target->get_player_mins(target->is_ducking());
+    sample.maxs = target->get_player_maxs(target->is_ducking());
+    sample.at_time = 0.0f;
+    sample.tick_count = local_prediction_time_to_ticks(target->get_simulation_time() + backtrack::interpolation_time());
+    out.push_back(sample);
+    return out;
+  }
+
+  move_sim::path path = move_sim::predict_entity_path(target, effective_horizon, false, config.aimbot.melee_account_ping);
   if (!path.valid || path.positions.empty()) {
     return out;
   }
@@ -328,31 +341,14 @@ inline std::vector<swing_sample> build_target_samples(Player* target, float swin
   const Vec3 maxs = target->get_player_maxs(target->is_ducking());
 
   const size_t last = path.positions.size() - 1;
-  size_t indices[3] = {last, last / 2, 0};
-  for (size_t idx : indices) {
-    if (idx >= path.positions.size()) {
-      continue;
-    }
-    bool dup = false;
-    for (const swing_sample& existing : out) {
-      if (aimbot_distance_squared(existing.origin, path.positions[idx]) < 0.01f) {
-        dup = true;
-        break;
-      }
-    }
-    if (dup) {
-      continue;
-    }
-
-    swing_sample s;
-    s.valid = true;
-    s.origin = path.positions[idx];
-    s.mins = mins;
-    s.maxs = maxs;
-    s.at_time = path.start_time + (static_cast<float>(idx) * path.time_step);
-    s.tick_count = local_prediction_time_to_ticks(target->get_simulation_time() + s.at_time + backtrack::interpolation_time());
-    out.push_back(s);
-  }
+  swing_sample sample{};
+  sample.valid = true;
+  sample.origin = path.positions[last];
+  sample.mins = mins;
+  sample.maxs = maxs;
+  sample.at_time = path.start_time + (static_cast<float>(last) * path.time_step);
+  sample.tick_count = local_prediction_time_to_ticks(target->get_simulation_time() + sample.at_time + backtrack::interpolation_time());
+  out.push_back(sample);
 
   return out;
 }
