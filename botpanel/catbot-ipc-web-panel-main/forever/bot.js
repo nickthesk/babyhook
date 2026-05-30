@@ -28,7 +28,7 @@ const steam_window_options = process.env.CAT_STEAM_WINDOW_OPTIONS || steam_windo
 const game_window_options_default = VISIBLE_WINDOWS ? '-gl -sw -w 1280 -h 720' : '-gl -silent -sw -w 640 -h 480';
 const GAME_WINDOW_OPTIONS = process.env.CAT_GAME_WINDOW_OPTIONS || game_window_options_default;
 const GAME_MODE_OPTIONS = TEXTMODE_GAME
-    ? '-textmode -nomouse -nosound'
+    ? '-nomouse -nosound'
     : '';
 const textmode_allocator_assignments = TEXTMODE_GAME
     ? 'MIMALLOC_ARENA_EAGER_COMMIT=0 MIMALLOC_EAGER_COMMIT_DELAY=0 MIMALLOC_PURGE_DELAY=0 MIMALLOC_RESET_DELAY=0 MIMALLOC_ALLOW_LARGE_OS_PAGES=0'
