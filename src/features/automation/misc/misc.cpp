@@ -63,7 +63,8 @@ namespace
 constexpr float auto_class_interval = 1.0f;
 constexpr float auto_report_interval = 5.0f;
 constexpr float auto_queue_interval = 5.0f;
-constexpr float auto_queue_loading_timeout = 360.0f;
+constexpr float auto_queue_loading_timeout = 120.0f;
+constexpr float auto_requeue_loading_timeout = 360.0f;
 constexpr float noisemaker_interval = 0.2f;
 constexpr float voice_command_spam_interval = 6.5f;
 constexpr int micspam_min_interval_seconds = 1;
@@ -2218,11 +2219,21 @@ void automation_controller::run_queueing()
       }
     }
 
-    if (config.misc.automation.auto_requeue &&
-        global_vars->realtime - queue_loading_start_time_ >= auto_queue_loading_timeout)
+    const float loading_duration = global_vars->realtime - queue_loading_start_time_;
+    const bool auto_queue_loading_timeout_hit =
+      config.misc.automation.auto_queue && loading_duration >= auto_queue_loading_timeout;
+    const bool auto_requeue_loading_timeout_hit =
+      config.misc.automation.auto_requeue && loading_duration >= auto_requeue_loading_timeout;
+
+    if (auto_queue_loading_timeout_hit || auto_requeue_loading_timeout_hit)
     {
       const bool used_abandon = abandon_current_match();
-      log_queue_debug("loading timeout hit, abandon=%d\n", used_abandon ? 1 : 0);
+      log_queue_debug(
+        "loading timeout hit auto_queue=%d auto_requeue=%d duration=%.2f abandon=%d\n",
+        auto_queue_loading_timeout_hit ? 1 : 0,
+        auto_requeue_loading_timeout_hit ? 1 : 0,
+        loading_duration,
+        used_abandon ? 1 : 0);
       if (!used_abandon)
       {
         engine->client_cmd_unrestricted("disconnect");
