@@ -46,7 +46,7 @@ const HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS = HEADLESS_STEAM_GRAPHICS ? 'LIBGL_ALW
 
 const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
-const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +clientport 27006-27014'`
+const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +fps_max 30 +clientport 27006-27014'`
 const LAUNCH_OPTIONS_GAME_STEAM = `firejail --join=%JAILNAME% bash -c '${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %STEAM% -applaunch 440'`
 const GAME_LIBRARY_PATH = './bin:./bin/linux64:./tf/bin:./tf/bin/linux64:./platform:./platform/bin:./platform/bin/linux64:.';
 
@@ -2192,7 +2192,7 @@ class Bot extends EventEmitter {
                 `LD_PRELOAD="${bash_double_quote_escape(game_preload)}"`,
                 textmode_allocator_assignments,
                 `%command%`,
-                `-steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +clientport 27006-27014`
+                `-steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +fps_max 30 +clientport 27006-27014`
             ].join(' ');
 
             if (!self.setSteamTf2LaunchOptions(steamid32, steam_tf2_launch_options)) {
@@ -2527,12 +2527,13 @@ class Bot extends EventEmitter {
         ].join('\n'));
     }
 
-    removeGamePreloadLibrary() {
-        if (!this.gamePreloadLibrary)
+    removeGamePreloadLibrary(preload_library = this.gamePreloadLibrary) {
+        if (!preload_library)
             return;
 
-        const preload_library = this.gamePreloadLibrary;
-        this.gamePreloadLibrary = null;
+        if (preload_library === this.gamePreloadLibrary)
+            this.gamePreloadLibrary = null;
+
         try {
             fs.unlinkSync(preload_library);
             this.log(`Removed temp cathook preload ${preload_library}`);
@@ -2556,9 +2557,11 @@ class Bot extends EventEmitter {
     runGdbCrashReport(pid, code, signal) {
         if (!pid || pid <= 0)
             return;
+        const preload_library = this.gamePreloadLibrary;
+        this.gamePreloadLibrary = null;
         if (this.gdbSnapshotRunning) {
             this.appendGdbLog(`\n[${new Date().toISOString()}] skipped gdb crash report pid=${pid}; previous report still running\n`);
-            this.removeGamePreloadLibrary();
+            this.removeGamePreloadLibrary(preload_library);
             return;
         }
 
@@ -2592,12 +2595,12 @@ class Bot extends EventEmitter {
         gdb.on('error', (error) => {
             this.appendGdbLog(`\n[gdb error] ${error.message}\n`);
             this.gdbSnapshotRunning = false;
-            this.removeGamePreloadLibrary();
+            this.removeGamePreloadLibrary(preload_library);
         });
         gdb.on('exit', (code, signal) => {
             this.appendGdbLog(`\n[gdb exit] code=${code} signal=${signal}\n`);
             this.gdbSnapshotRunning = false;
-            this.removeGamePreloadLibrary();
+            this.removeGamePreloadLibrary(preload_library);
         });
     }
 

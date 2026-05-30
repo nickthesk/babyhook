@@ -76,6 +76,7 @@ private:
   uint32_t world_generation_id_ = 0;
   float next_goal_refresh_time_ = 0.0f;
   float next_path_request_time_ = 0.0f;
+  float next_hazard_update_time_ = 0.0f;
   float next_weapon_switch_time_ = 0.0f;
   int last_requested_weapon_slot_ = 0;
   int pending_desired_weapon_slot_ = 0;

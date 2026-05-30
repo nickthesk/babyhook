@@ -78,6 +78,8 @@ constexpr int casual_match_group_default = 7;
 constexpr float anti_afk_trigger_padding = 10.0f;
 constexpr int text_msg_user_message_type = 5;
 constexpr int report_reason_cheating = 1;
+constexpr const char* tf_client_module_name = "tf/bin/linux64/client.so";
+constexpr float party_client_scan_interval = 0.25f;
 constexpr const char* auto_balance_pending_token = "#TF_Autobalance_TeamChangePending";
 constexpr float autotaunt_step_interval = 0.12f;
 constexpr int max_chat_command_length = 220;
@@ -108,6 +110,8 @@ struct party_client_api
   request_leave_for_match_fn request_leave_for_match = nullptr;
   request_queue_for_standby_fn request_queue_for_standby = nullptr;
   request_leave_standby_fn request_leave_standby = nullptr;
+  int scan_step = 0;
+  float next_scan_time = 0.0f;
 };
 
 party_client_api g_party_client_api{};
@@ -587,6 +591,22 @@ request_queue_for_match_fn get_shared_request_queue_for_match()
   return request_queue_for_match_with_region_selector;
 }
 
+bool party_client_scan_ready()
+{
+  if (global_vars == nullptr)
+  {
+    return true;
+  }
+
+  if (global_vars->realtime < g_party_client_api.next_scan_time)
+  {
+    return false;
+  }
+
+  g_party_client_api.next_scan_time = global_vars->realtime + party_client_scan_interval;
+  return true;
+}
+
 void initialize_party_client_api()
 {
   if (g_party_client_api.initialized)
@@ -594,28 +614,73 @@ void initialize_party_client_api()
     return;
   }
 
-  auto* get_party_client_match = sigscan_module("client.so", sigs::get_party_client);
-  auto* get_matchmaking_client_match = sigscan_module("client.so", sigs::get_matchmaking_client);
+  if (!party_client_scan_ready())
+  {
+    return;
+  }
+
+  switch (g_party_client_api.scan_step)
+  {
+    case 0:
+    {
+      void* get_party_client_match = sigscan_module(tf_client_module_name, sigs::get_party_client);
+      if (get_party_client_match != nullptr)
+      {
+        g_party_client_api.get_party_client = reinterpret_cast<get_party_client_fn>(
+          reinterpret_cast<std::uintptr_t>(get_party_client_match) + sigs::get_party_client_offset);
+      }
+      ++g_party_client_api.scan_step;
+      return;
+    }
+    case 1:
+      g_party_client_api.get_matchmaking_client =
+        reinterpret_cast<get_matchmaking_client_fn>(sigscan_module(tf_client_module_name, sigs::get_matchmaking_client));
+      ++g_party_client_api.scan_step;
+      return;
+    case 2:
+      g_party_client_api.load_saved_casual_criteria =
+        reinterpret_cast<load_saved_casual_criteria_fn>(sigscan_module(tf_client_module_name, sigs::load_saved_casual_criteria));
+      ++g_party_client_api.scan_step;
+      return;
+    case 3:
+      g_party_client_api.is_in_queue_for_match_group =
+        reinterpret_cast<is_in_queue_for_match_group_fn>(sigscan_module(tf_client_module_name, sigs::is_in_queue_for_match_group));
+      ++g_party_client_api.scan_step;
+      return;
+    case 4:
+      g_party_client_api.is_in_standby_queue =
+        reinterpret_cast<is_in_standby_queue_fn>(sigscan_module(tf_client_module_name, sigs::is_in_standby_queue));
+      ++g_party_client_api.scan_step;
+      return;
+    case 5:
+      g_party_client_api.abandon_current_match =
+        reinterpret_cast<abandon_current_match_fn>(sigscan_module(tf_client_module_name, sigs::abandon_current_match));
+      ++g_party_client_api.scan_step;
+      return;
+    case 6:
+      g_party_client_api.request_queue_for_match = get_shared_request_queue_for_match();
+      ++g_party_client_api.scan_step;
+      return;
+    case 7:
+      g_party_client_api.request_leave_for_match =
+        reinterpret_cast<request_leave_for_match_fn>(sigscan_module(tf_client_module_name, sigs::request_leave_for_match));
+      ++g_party_client_api.scan_step;
+      return;
+    case 8:
+      g_party_client_api.request_queue_for_standby =
+        reinterpret_cast<request_queue_for_standby_fn>(sigscan_module(tf_client_module_name, sigs::request_queue_for_standby));
+      ++g_party_client_api.scan_step;
+      return;
+    case 9:
+      g_party_client_api.request_leave_standby =
+        reinterpret_cast<request_leave_standby_fn>(sigscan_module(tf_client_module_name, sigs::request_leave_standby));
+      ++g_party_client_api.scan_step;
+      return;
+    default:
+      break;
+  }
 
   g_party_client_api.initialized = true;
-  if (get_party_client_match != nullptr)
-  {
-    g_party_client_api.get_party_client = reinterpret_cast<get_party_client_fn>(
-      reinterpret_cast<std::uintptr_t>(get_party_client_match) + sigs::get_party_client_offset);
-  }
-  if (get_matchmaking_client_match != nullptr)
-  {
-    g_party_client_api.get_matchmaking_client = reinterpret_cast<get_matchmaking_client_fn>(get_matchmaking_client_match);
-  }
-  g_party_client_api.load_saved_casual_criteria = reinterpret_cast<load_saved_casual_criteria_fn>(sigscan_module("client.so", sigs::load_saved_casual_criteria));
-  g_party_client_api.is_in_queue_for_match_group = reinterpret_cast<is_in_queue_for_match_group_fn>(sigscan_module("client.so", sigs::is_in_queue_for_match_group));
-  g_party_client_api.is_in_standby_queue = reinterpret_cast<is_in_standby_queue_fn>(sigscan_module("client.so", sigs::is_in_standby_queue));
-  g_party_client_api.abandon_current_match = reinterpret_cast<abandon_current_match_fn>(sigscan_module("client.so", sigs::abandon_current_match));
-  g_party_client_api.request_queue_for_match = get_shared_request_queue_for_match();
-  g_party_client_api.request_leave_for_match = reinterpret_cast<request_leave_for_match_fn>(sigscan_module("client.so", sigs::request_leave_for_match));
-  g_party_client_api.request_queue_for_standby = reinterpret_cast<request_queue_for_standby_fn>(sigscan_module("client.so", sigs::request_queue_for_standby));
-  g_party_client_api.request_leave_standby = reinterpret_cast<request_leave_standby_fn>(sigscan_module("client.so", sigs::request_leave_standby));
-
   log_queue_debug(
     "api init get_party_client=%p get_matchmaking_client=%p load_saved_casual_criteria=%p is_in_queue=%p is_in_standby=%p abandon_current_match=%p request_queue=%p request_leave=%p request_queue_standby=%p request_leave_standby=%p\n",
     reinterpret_cast<void*>(g_party_client_api.get_party_client),

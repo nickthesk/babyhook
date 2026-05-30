@@ -135,7 +135,7 @@ constexpr const char* base_animating_dispatch_anim_events =
 constexpr const char* cl_decay_lights =
   "55 48 8D 3D ? ? ? ? 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC ? E8 ? ? ? ? 66 0F EF C9";
 constexpr const char* engine_fps_max_min_clamp =
-  "F3 0F 10 40 54 0F 2F 05 ? ? ? ? 0F 83 ? ? ? ? 48 8D 3D";
+  "0F 2F 05 ? ? ? ? 0F 83 ? ? ? ? 48 8D 3D ? ? ? ? 31 C0 F3 0F 11 4D";
 constexpr const char* engine_frame_busy_wait =
   "B8 D1 07 00 00 0F 1F 00 F3 90 F3 90 F3 90 F3 90 83 E8 01 75 F3";
 constexpr const char* mod_load_lighting =

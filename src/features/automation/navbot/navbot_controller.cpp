@@ -47,6 +47,13 @@ constexpr float goal_refresh_interval = 1.0f;
 constexpr float path_retry_interval = 1.0f;
 constexpr float weapon_switch_interval = 0.35f;
 constexpr float navbot_throwable_look_suppress_seconds = 0.55f;
+#if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
+constexpr bool textmode_build = true;
+constexpr float hazard_refresh_interval = 1.0f;
+#else
+constexpr bool textmode_build = false;
+constexpr float hazard_refresh_interval = 0.25f;
+#endif
 static float g_navbot_throwable_look_suppress_until = -1.0e9f;
 
 bool navbot_weapon_is_arc_throwable(Weapon* weapon)
@@ -990,6 +997,7 @@ void navbot_controller::clear_runtime_state()
   active_path_ = path_result{};
   active_goal_ = {};
   pending_job_ = {};
+  next_hazard_update_time_ = 0.0f;
   next_weapon_switch_time_ = 0.0f;
   last_requested_weapon_slot_ = 0;
   pending_desired_weapon_slot_ = 0;
@@ -1324,7 +1332,11 @@ void navbot_controller::on_frame_stage_notify()
   }
 
   rebuild_mesh_if_needed();
-  update_hazards();
+  if (global_vars == nullptr || global_vars->curtime >= next_hazard_update_time_)
+  {
+    update_hazards();
+    next_hazard_update_time_ = (global_vars != nullptr ? global_vars->curtime : 0.0f) + hazard_refresh_interval;
+  }
 }
 
 void navbot_controller::on_game_event(GameEvent* event)
@@ -1573,6 +1585,12 @@ int hazard_priority(hazard_kind kind)
 
 void navbot_controller::update_hazards()
 {
+  if constexpr (textmode_build)
+  {
+    hazards_.clear_soft_costs();
+    return;
+  }
+
   auto* localplayer = entity_list != nullptr ? entity_list->get_localplayer() : nullptr;
   if (localplayer == nullptr || !mesh_.is_ready())
   {
