@@ -29,6 +29,7 @@ public:
   void on_create_move(user_cmd* user_cmd);
   void on_frame_stage_notify();
   void on_paint();
+  void on_menu_tick();
   void on_dispatch_user_message(int message_type, const bf_read* message_data);
   void on_game_event(GameEvent* event);
 

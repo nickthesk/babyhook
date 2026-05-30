@@ -1120,6 +1120,18 @@ void automation_controller::on_paint()
   run_queueing();
 }
 
+void automation_controller::on_menu_tick()
+{
+#if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
+  if (engine == nullptr || global_vars == nullptr)
+  {
+    return;
+  }
+
+  run_queueing();
+#endif
+}
+
 void automation_controller::on_dispatch_user_message(int message_type, const bf_read* message_data)
 {
   if (!config.misc.automation.anti_autobalance || engine == nullptr)

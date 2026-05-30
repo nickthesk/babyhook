@@ -18,6 +18,7 @@ V  o o  V  file: src/core/hooks/intro_menu_on_tick.cpp
 #include "games/tf2/sdk/entities/player.hpp"
 
 #include "core/print.hpp"
+#include "features/automation/misc/misc.hpp"
 
 void (*intro_menu_on_tick_original)(void*) = NULL;
 
@@ -25,6 +26,7 @@ static float last_time2 = 0.0;
 
 void intro_menu_on_tick_hook(void* me) {
   intro_menu_on_tick_original(me);
+  automation::controller().on_menu_tick();
   return;
 
   /*
