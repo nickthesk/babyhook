@@ -14,7 +14,7 @@ const steam_id = require('../steam_id');
 const CATHOOK_ROOT = process.env.CATHOOK_ROOT || '/opt/cathook';
 const VISIBLE_WINDOWS = process.env.CAT_VISIBLE_WINDOWS === '1';
 const BOT_DISPLAY = process.env.DISPLAY || process.env.CAT_DEFAULT_DISPLAY || ':699';
-const BOT_XAUTHORITY = VISIBLE_WINDOWS ? (process.env.XAUTHORITY || path.join(process.env.HOME || '', '.Xauthority')) : '';
+const BOT_XAUTHORITY = process.env.XAUTHORITY || path.join(process.env.HOME || '', '.Xauthority');
 const XPRA_LOG = process.env.CAT_XPRA_LOG || '/tmp/cat-catbot-xpra.log';
 const TEXTMODE_GAME = process.env.CAT_TEXTMODE_GAME !== '0';
 const GDB_CRASH_REPORTS = process.env.CAT_GDB_CRASH_REPORTS === '1' || config.gdb_crash_reports === true;
@@ -63,7 +63,7 @@ const steam_client_initialized_game_delay = (Number.isFinite(STEAM_CLIENT_INITIA
 // How long to wait for the TF2 process to be created by firejail
 const TIMEOUT_START_GAME = 10000;
 // Timeout for cathook to connect to the IPC server once injected
-const TIMEOUT_IPC_STATE = Number.parseInt(process.env.CAT_IPC_TIMEOUT_SECONDS || '90', 10) * 1000;
+const TIMEOUT_IPC_STATE = Number.parseInt(process.env.CAT_IPC_TIMEOUT_SECONDS || '300', 10) * 1000;
 const ipc_heartbeat_stale_timeout = Number.parseInt(process.env.CAT_IPC_STALE_SECONDS || '45', 10) * 1000;
 const ipc_identity_timeout = Number.parseInt(process.env.CAT_IPC_IDENTITY_TIMEOUT_SECONDS || '60', 10) * 1000;
 const runtime_kill_grace_time = Number.parseInt(process.env.CAT_RUNTIME_KILL_GRACE_SECONDS || '8', 10) * 1000;
@@ -417,7 +417,8 @@ function read_proc_stat(pid) {
             comm: comm,
             ppid: Number.parseInt(fields[1], 10),
             starttime: Number.parseInt(fields[19], 10) || 0,
-            cmdline: read_proc_cmdline(pid)
+            cmdline: read_proc_cmdline(pid),
+            nspids: read_proc_nspids(pid)
         };
     } catch (error) {
         return null;
@@ -484,6 +485,22 @@ function read_proc_cmdline(pid) {
     }
 }
 
+function read_proc_nspids(pid) {
+    try {
+        const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+        const line = status.split('\n').find((entry) => entry.startsWith('NSpid:'));
+        if (!line)
+            return [pid];
+
+        const pids = line.slice(6).trim().split(/\s+/)
+            .map((value) => Number.parseInt(value, 10))
+            .filter((value) => Number.isSafeInteger(value) && value > 0);
+        return pids.length ? pids : [pid];
+    } catch (error) {
+        return [pid];
+    }
+}
+
 function read_process_table() {
     const processes = new Map();
     try {
@@ -513,6 +530,10 @@ function process_command_executable(info) {
 function is_game_process(info, game_binary) {
     const executable = process_command_executable(info);
     return executable === game_binary || info.comm === game_binary || executable === 'tf_linux64' || info.comm === 'tf_linux64';
+}
+
+function process_has_pid(info, pid) {
+    return Boolean(info && pid > 0 && (info.pid === pid || (info.nspids || []).includes(pid)));
 }
 
 function collect_descendant_pids(root_pid, processes) {
@@ -1478,14 +1499,11 @@ class Bot extends EventEmitter {
         this.botDisplay = null;
     }
 
-    ensureVisibleXauthority() {
-        this.xauthorityPath = BOT_XAUTHORITY;
-
-        if (!VISIBLE_WINDOWS)
-            return this.xauthorityPath;
-
+    ensure_xauthority() {
         if (!BOT_XAUTHORITY || !fs.existsSync(BOT_XAUTHORITY)) {
-            this.log(`Visible windows requested but XAUTHORITY is missing: ${BOT_XAUTHORITY}`);
+            this.xauthorityPath = '';
+            if (VISIBLE_WINDOWS)
+                this.log(`Visible windows requested but XAUTHORITY is missing: ${BOT_XAUTHORITY}`);
             return this.xauthorityPath;
         }
 
@@ -1494,9 +1512,10 @@ class Bot extends EventEmitter {
             fs.mkdirSync(this.home, { recursive: true });
             fs.copyFileSync(BOT_XAUTHORITY, target_path);
             fs.chownSync(target_path, USER.uid, USER.uid);
-            this.xauthorityPath = target_path;
+            this.xauthorityPath = this.sandboxHomePath(target_path);
         } catch (error) {
-            this.log(`Failed to copy XAUTHORITY for visible windows: ${error.message}`);
+            this.xauthorityPath = '';
+            this.log(`Failed to copy XAUTHORITY for display ${BOT_DISPLAY}: ${error.message}`);
         }
 
         return this.xauthorityPath;
@@ -1996,7 +2015,7 @@ class Bot extends EventEmitter {
         self.ensure_per_bot_x_display();
         const using_per_bot_x = self.using_per_bot_x_display();
         const display_value = (using_per_bot_x && self.botDisplay) ? self.botDisplay : BOT_DISPLAY;
-        const xauthority_path = using_per_bot_x ? '' : self.ensureVisibleXauthority();
+        const xauthority_path = using_per_bot_x ? '' : self.ensure_xauthority();
         if (using_per_bot_x)
             self.xauthorityPath = '';
 
@@ -2722,14 +2741,25 @@ class Bot extends EventEmitter {
     }
 
     owns_process_pid(pid) {
-        if (!this.procFirejailGame || !pid || pid <= 0)
-            return false;
+        return Boolean(this.find_owned_process_by_pid(pid));
+    }
 
-        if (pid === this.procFirejailGame.pid)
-            return true;
+    find_owned_process_by_pid(pid) {
+        if (!this.procFirejailGame || !pid || pid <= 0)
+            return null;
 
         const processes = read_process_table();
-        return collect_descendant_pids(this.procFirejailGame.pid, processes).includes(pid);
+        const root_process = processes.get(this.procFirejailGame.pid);
+        if (process_has_pid(root_process, pid))
+            return root_process;
+
+        for (const descendant_pid of collect_descendant_pids(this.procFirejailGame.pid, processes)) {
+            const info = processes.get(descendant_pid);
+            if (process_has_pid(info, pid))
+                return info;
+        }
+
+        return null;
     }
 
     ipc_peer_match_score(id, data) {
@@ -2762,10 +2792,17 @@ class Bot extends EventEmitter {
             return;
 
         this.time_ipc_peer_missing = 0;
-        if (!this.startTime && data.starttime)
-            this.startTime = data.starttime;
-        if (data.pid)
-            this.gamePid = data.pid;
+        const peer_process = this.find_owned_process_by_pid(data.pid);
+        if (peer_process) {
+            this.gamePid = peer_process.pid;
+            if (!this.startTime)
+                this.startTime = peer_process.starttime;
+        } else {
+            if (!this.startTime && data.starttime)
+                this.startTime = data.starttime;
+            if (data.pid)
+                this.gamePid = data.pid;
+        }
 
         this.emit('ipc-data', {
             id: id,
