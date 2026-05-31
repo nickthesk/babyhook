@@ -2098,9 +2098,9 @@ class Bot extends EventEmitter {
         this.force_kill_runtime_processes(1000);
     }
 
-    restart_after_login_error_5(log_path) {
-        this.log(`[ERROR] Steam login error 5 detected; restarting Steam immediately. log=${log_path}`);
-        this.log_single_steam_tail('Steam login error 5 log tail', log_path);
+    restart_after_auth_relogin(status_text, log_path) {
+        this.log(`[ERROR] Steam ${status_text} detected; restarting Steam immediately. log=${log_path}`);
+        this.log_single_steam_tail(`Steam ${status_text} log tail`, log_path);
         this.shouldRestart = true;
         this.time_steamWorking = 0;
         this.killGame();
@@ -2624,10 +2624,10 @@ class Bot extends EventEmitter {
             this.mark_terminal_auth_error(STATE.ACCOUNT_DISABLED_E43, 'ACCOUNT DISABLED E43', account_disabled_e43_log_path);
         }
         else if (!this.isSteamWorking && login_error_5_log_path) {
-            this.restart_after_login_error_5(login_error_5_log_path);
+            this.restart_after_auth_relogin('login error 5', login_error_5_log_path);
         }
         else if (!this.isSteamWorking && invalid_password_log_path) {
-            this.mark_terminal_auth_error(STATE.INVALID_PASSWORD_E5, 'INVALID PASSWORD E5', invalid_password_log_path);
+            this.restart_after_auth_relogin('invalid password E5', invalid_password_log_path);
         }
         else if (!this.isSteamWorking && x_client_cap_log_path) {
             if (!this.restart_after_x_client_cap(x_client_cap_log_path)) {
@@ -3223,13 +3223,13 @@ class Bot extends EventEmitter {
 
                         const login_error_5_log_path = this.steam_login_error_5_log_path();
                         if (login_error_5_log_path) {
-                            this.restart_after_login_error_5(login_error_5_log_path);
+                            this.restart_after_auth_relogin('login error 5', login_error_5_log_path);
                             return;
                         }
 
                         const invalid_password_log_path = this.steam_invalid_password_log_path();
                         if (invalid_password_log_path) {
-                            this.mark_terminal_auth_error(STATE.INVALID_PASSWORD_E5, 'INVALID PASSWORD E5', invalid_password_log_path);
+                            this.restart_after_auth_relogin('invalid password E5', invalid_password_log_path);
                             return;
                         }
 
