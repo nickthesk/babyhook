@@ -28,6 +28,7 @@ V  o o  V  file: src/features/automation/navbot/navbot_controller.cpp
 
 #include "games/tf2/sdk/entities/entity.hpp"
 #include "games/tf2/sdk/entities/player.hpp"
+#include "games/tf2/sdk/entities/team_objective_resource.hpp"
 #include "games/tf2/sdk/entities/weapon.hpp"
 #include "games/tf2/sdk/interfaces/client.hpp"
 #include "games/tf2/sdk/interfaces/engine.hpp"
@@ -48,6 +49,8 @@ constexpr float goal_retry_interval = 0.2f;
 constexpr float path_retry_interval = 1.0f;
 constexpr float weapon_switch_interval = 0.35f;
 constexpr float navbot_throwable_look_suppress_seconds = 0.55f;
+constexpr int team_unassigned = 0;
+constexpr int tf_team_blue_value = 3;
 #if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
 constexpr bool textmode_build = true;
 constexpr float hazard_refresh_interval = 1.0f;
@@ -1048,6 +1051,71 @@ bool navbot_controller::record_crumb_failure(const follower_tick_result& follow_
   return true;
 }
 
+int navbot_controller::current_captured_point_index() const
+{
+  if (last_captured_point_index_ >= 0)
+  {
+    return last_captured_point_index_;
+  }
+
+  int highest_point_index = -1;
+  for (auto* entity : entity_cache[class_id::OBJECTIVE_RESOURCE])
+  {
+    TeamObjectiveResource* objective = reinterpret_cast<TeamObjectiveResource*>(entity);
+    if (objective == nullptr)
+    {
+      continue;
+    }
+
+    const int point_count = std::clamp(objective->get_num_control_points(), 0, MAX_CONTROL_POINTS);
+    const bool playing_mini_rounds = objective->is_playing_mini_rounds();
+    for (int point_index = 0; point_index < point_count; ++point_index)
+    {
+      if (playing_mini_rounds && !objective->is_in_mini_round(point_index))
+      {
+        continue;
+      }
+
+      const int owning_team = objective->get_owning_team(point_index);
+      if (owning_team == team_unassigned)
+      {
+        continue;
+      }
+
+      if (owning_team == tf_team_blue_value)
+      {
+        highest_point_index = std::max(highest_point_index, point_index);
+      }
+    }
+  }
+
+  return highest_point_index;
+}
+
+uint32_t navbot_controller::current_mini_round_mask() const
+{
+  uint32_t mask = 0;
+  for (auto* entity : entity_cache[class_id::OBJECTIVE_RESOURCE])
+  {
+    TeamObjectiveResource* objective = reinterpret_cast<TeamObjectiveResource*>(entity);
+    if (objective == nullptr)
+    {
+      continue;
+    }
+
+    const int point_count = std::clamp(objective->get_num_control_points(), 0, MAX_CONTROL_POINTS);
+    for (int point_index = 0; point_index < point_count; ++point_index)
+    {
+      if (objective->is_in_mini_round(point_index))
+      {
+        mask |= 1u << static_cast<uint32_t>(point_index);
+      }
+    }
+  }
+
+  return mask;
+}
+
 bool navbot_controller::should_block_pathing(Player* localplayer) const
 {
   if (localplayer == nullptr)
@@ -1194,6 +1262,25 @@ void navbot_controller::on_create_move(user_cmd* user_cmd)
   debug_state_.goal_valid = active_goal_.valid;
   debug_state_.map_name = mesh_.map_name();
   debug_state_.nav_file_path = mesh_.nav_file_path();
+  debug_state_.captured_point_index = current_captured_point_index();
+  debug_state_.mini_round_mask = current_mini_round_mask();
+  debug_state_.setup_finished = setup_finished_;
+  server_recording_context recording_context{};
+  recording_context.captured_point_index = debug_state_.captured_point_index;
+  recording_context.mini_round_mask = debug_state_.mini_round_mask;
+  recording_context.setup_finished = setup_finished_;
+  server_recorder_.update(mesh_.map_name(), recording_context, current_time);
+  const server_recording_status& recording_status = server_recorder_.status();
+  debug_state_.server_recording = recording_status.recording;
+  debug_state_.server_module_found = recording_status.server_module_found;
+  debug_state_.server_signature_found = recording_status.signature_found;
+  debug_state_.server_recording_write_ok = recording_status.write_ok;
+  debug_state_.server_recorded_total_areas = recording_status.server_area_count;
+  debug_state_.server_recorded_blocked_areas = recording_status.blocked_area_count;
+  debug_state_.server_recorded_unique_areas = recording_status.unique_blocked_area_count;
+  debug_state_.server_recorded_snapshots = recording_status.snapshot_count;
+  debug_state_.server_recording_path = recording_status.output_path;
+  debug_state_.server_recording_message = recording_status.message;
   request_path_if_needed();
   if (active_goal_.valid && active_goal_.goal.type == goal_type::reload_weapons && reload_job_still_needed(localplayer))
   {
@@ -1356,8 +1443,14 @@ void navbot_controller::on_game_event(GameEvent* event)
     return;
   }
 
+  if (std::strcmp(name, "teamplay_point_captured") == 0)
+  {
+    last_captured_point_index_ = event->get_int("cp", -1);
+  }
+
   if (std::strcmp(name, "item_pickup") == 0
     || std::strcmp(name, "teamplay_point_captured") == 0
+    || std::strcmp(name, "teamplay_point_unlocked") == 0
     || std::strcmp(name, "teamplay_flag_event") == 0
     || std::strcmp(name, "teamplay_round_start") == 0
     || std::strcmp(name, "teamplay_setup_finished") == 0)
@@ -1367,12 +1460,14 @@ void navbot_controller::on_game_event(GameEvent* event)
       round_started_ = true;
       setup_finished_ = false;
       warmup_active_ = false;
+      last_captured_point_index_ = -1;
     }
     else if (std::strcmp(name, "teamplay_setup_finished") == 0)
     {
       round_started_ = true;
       setup_finished_ = true;
       warmup_active_ = false;
+      last_captured_point_index_ = -1;
     }
 
     jobs_.cancel_generation(current_generation_id_);
@@ -1387,6 +1482,7 @@ void navbot_controller::on_game_event(GameEvent* event)
     round_started_ = false;
     setup_finished_ = false;
     warmup_active_ = true;
+    last_captured_point_index_ = -1;
     jobs_.cancel_generation(current_generation_id_);
     ++world_generation_id_;
     pending_job_ = {};
@@ -1461,6 +1557,7 @@ void navbot_controller::rebuild_mesh_if_needed()
   jobs_.cancel_generation(current_generation_id_);
   mesh_.rebuild_from_current_map();
   hazards_.clear();
+  server_recorder_.reset();
   clear_runtime_state();
   ++world_generation_id_;
   ++current_generation_id_;
@@ -1469,6 +1566,7 @@ void navbot_controller::rebuild_mesh_if_needed()
   round_started_ = false;
   setup_finished_ = false;
   warmup_active_ = false;
+  last_captured_point_index_ = -1;
   debug_state_.mesh_ready = mesh_.is_ready();
   debug_state_.map_name = mesh_.map_name();
   debug_state_.nav_file_path = mesh_.nav_file_path();
@@ -1560,7 +1658,10 @@ void navbot_controller::request_path_if_needed()
   request.team = static_cast<uint32_t>(localplayer->get_team());
   request.class_id = static_cast<uint32_t>(localplayer->get_tf_class());
   request.hazard_generation = hazards_.generation();
+  request.captured_point_index = current_captured_point_index();
+  request.recorded_blocked_areas = server_recorder_.blocked_areas();
   request.destination_reach_distance = destination_reach_distance_for_goal(active_goal_.goal.type);
+  request.setup_finished = setup_finished_;
   request.require_exact_goal_area = active_goal_.goal.type == goal_type::push_payload;
 
   pending_job_ = jobs_.submit_path_request(request);

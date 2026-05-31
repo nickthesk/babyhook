@@ -20,6 +20,7 @@ V  o o  V  file: src/features/automation/navbot/navbot_controller.hpp
 #include "features/automation/navbot/navbot_hazards.hpp"
 #include "features/automation/navbot/navbot_jobs.hpp"
 #include "features/automation/navbot/navbot_mesh.hpp"
+#include "features/automation/navbot/navbot_recording.hpp"
 #include "features/automation/navbot/navbot_types.hpp"
 
 struct user_cmd;
@@ -57,6 +58,8 @@ private:
   void clear_runtime_state();
   void update_weapon_choice(Player* localplayer);
   bool record_crumb_failure(const follower_tick_result& follow_result, float current_time);
+  [[nodiscard]] int current_captured_point_index() const;
+  [[nodiscard]] uint32_t current_mini_round_mask() const;
   [[nodiscard]] bool should_block_pathing(Player* localplayer) const;
 
   navbot_mesh mesh_{};
@@ -64,6 +67,7 @@ private:
   navbot_goals goals_{};
   navbot_follow follower_{};
   navbot_jobs jobs_{};
+  server_nav_recorder server_recorder_{};
 
   bool jobs_started_ = false;
   std::string loaded_map_name_{};
@@ -84,6 +88,7 @@ private:
   float pending_desired_since_ = 0.0f;
   crumb_failure_state crumb_failure_{};
   bool suppress_aimbot_for_reload_ = false;
+  int last_captured_point_index_ = -1;
   bool round_started_ = false;
   bool setup_finished_ = false;
   bool warmup_active_ = false;

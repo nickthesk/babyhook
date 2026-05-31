@@ -84,6 +84,8 @@ constexpr const char* inspect_target_check =
   "55 48 89 E5 41 55 41 54 53 48 81 EC ? ? ? ? 48 85 F6 74 ? 48 8D 05 ? ? ? ?";
 constexpr const char* tf_projectile_sticky_arm_time =
   "55 48 89 E5 41 54 49 89 FC 48 83 EC ? 48 8B 05 ? ? ? ? 8B 97 ? ? ? ? F3 0F 10 40 ? 48 8D 05 ? ? ? ?";
+constexpr const char* navbot_server_compute_blocked_areas =
+  "55 48 89 E5 41 57 41 56 41 55 41 54 53 31 DB 48 81 EC D8 00 00 00 4C 8D 25 ? ? ? ? 45 8B 4C 24 10 45 85 C9 7E ? 66 0F 1F 84 00 00 00 00 00 49 8B 04 24 BE FE FF FF FF 48 8B 3C D8 48 83 C3 01 E8 ? ? ? ? 41 39 5C 24 10";
 
 constexpr const char* tf_inventory_manager_initializer =
   "55 48 8D 3D ? ? ? ? 48 89 E5 E8 ? ? ? ? 48 8D 15 ? ? ? ? 48 8D 35 ? ? ? ? 48 8D 3D ? ? ? ? E8 ? ? ? ? 48 8D 15 ? ? ? ?";

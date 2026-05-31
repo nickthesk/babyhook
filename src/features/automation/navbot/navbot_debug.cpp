@@ -295,7 +295,7 @@ void draw_debug_overlay_imgui(ImDrawList* draw_list, const navbot_debug_state& d
   }
 
   auto lines = std::vector<std::string>{};
-  lines.reserve(8);
+  lines.reserve(18);
   lines.emplace_back("navbot");
   lines.emplace_back(std::string("map: ") + debug_state.map_name);
   lines.emplace_back(std::string("mesh: ") + (debug_state.mesh_ready ? "ready" : "missing"));
@@ -304,6 +304,25 @@ void draw_debug_overlay_imgui(ImDrawList* draw_list, const navbot_debug_state& d
   lines.emplace_back(std::string("active_path: ") + (debug_state.has_active_path ? "yes" : "no"));
   lines.emplace_back(std::string("crumbs: ") + std::to_string(debug_state.active_crumb_count));
   lines.emplace_back(std::string("last_fail: ") + failure_reason_name(debug_state.last_failure));
+  lines.emplace_back(std::string("cp: ") + std::to_string(debug_state.captured_point_index) +
+                     " setup: " + (debug_state.setup_finished ? "done" : "active") +
+                     " mini: " + std::to_string(debug_state.mini_round_mask));
+  lines.emplace_back(std::string("recording: ") +
+                     (debug_state.server_recording ? "yes" : "no") +
+                     " server: " + (debug_state.server_module_found ? "yes" : "no") +
+                     " sig: " + (debug_state.server_signature_found ? "yes" : "no"));
+  lines.emplace_back(std::string("recorded: snapshots ") + std::to_string(debug_state.server_recorded_snapshots) +
+                     " blocked " + std::to_string(debug_state.server_recorded_blocked_areas) +
+                     " unique " + std::to_string(debug_state.server_recorded_unique_areas) +
+                     " total " + std::to_string(debug_state.server_recorded_total_areas));
+  if (!debug_state.server_recording_message.empty())
+  {
+    lines.emplace_back(std::string("record_status: ") + debug_state.server_recording_message);
+  }
+  if (!debug_state.server_recording_path.empty())
+  {
+    lines.emplace_back(std::string("record_file: ") + debug_state.server_recording_path);
+  }
   if (!debug_state.nav_file_path.empty())
   {
     lines.emplace_back(std::string("nav: ") + debug_state.nav_file_path);

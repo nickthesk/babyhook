@@ -26,8 +26,16 @@ public:
     return *(int*)(this + 0x7B8);
   }
 
+  bool is_playing_mini_rounds(void) {
+    return *(bool*)(this + 0x7C0);
+  }
+
   int get_owning_team(int index) {
     return (((int*)(this + 0x1AE4)))[index];
+  }
+
+  bool is_in_mini_round(int index) {
+    return ((bool*)(this + 0x10B4))[index];
   }
 
   bool is_locked(int index) {

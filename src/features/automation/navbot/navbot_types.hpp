@@ -104,6 +104,13 @@ enum class path_status : uint8_t
   failed
 };
 
+struct recorded_blocked_area
+{
+  nav_area_id area_id{};
+  bool red = false;
+  bool blue = false;
+};
+
 struct path_request
 {
   uint64_t request_id = 0;
@@ -117,7 +124,10 @@ struct path_request
   uint32_t team = 0;
   uint32_t class_id = 0;
   uint32_t hazard_generation = 0;
+  int captured_point_index = -1;
+  std::vector<recorded_blocked_area> recorded_blocked_areas{};
   float destination_reach_distance = crumb_reach_distance;
+  bool setup_finished = false;
   bool require_exact_goal_area = false;
 };
 
@@ -219,12 +229,25 @@ struct navbot_debug_state
   float last_solve_time_ms = 0.0f;
   uint32_t rejected_job_count = 0;
   uint32_t stale_result_count = 0;
+  uint32_t server_recorded_snapshots = 0;
+  uint32_t server_recorded_blocked_areas = 0;
+  uint32_t server_recorded_unique_areas = 0;
+  uint32_t server_recorded_total_areas = 0;
+  int captured_point_index = -1;
+  uint32_t mini_round_mask = 0;
   bool mesh_ready = false;
   bool goal_valid = false;
   bool has_active_path = false;
+  bool setup_finished = false;
+  bool server_recording = false;
+  bool server_module_found = false;
+  bool server_signature_found = false;
+  bool server_recording_write_ok = false;
   uint32_t active_crumb_count = 0;
   std::string map_name{};
   std::string nav_file_path{};
+  std::string server_recording_path{};
+  std::string server_recording_message{};
 };
 
 struct navbot_goal_state

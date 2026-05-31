@@ -56,6 +56,20 @@ struct queue_entry_less
   }
 };
 
+constexpr uint32_t tf_team_red = 2u;
+constexpr uint32_t tf_team_blue = 3u;
+constexpr uint32_t path_tf_nav_blue_setup_gate = 0x00000800u;
+constexpr uint32_t path_tf_nav_red_setup_gate = 0x00001000u;
+constexpr uint32_t path_tf_nav_blocked_after_point_capture = 0x00002000u;
+constexpr uint32_t path_tf_nav_blocked_until_point_capture = 0x00004000u;
+constexpr uint32_t path_tf_nav_blue_one_way_door = 0x00008000u;
+constexpr uint32_t path_tf_nav_red_one_way_door = 0x00010000u;
+constexpr uint32_t path_tf_nav_with_second_point = 0x00020000u;
+constexpr uint32_t path_tf_nav_with_third_point = 0x00040000u;
+constexpr uint32_t path_tf_nav_with_fourth_point = 0x00080000u;
+constexpr uint32_t path_tf_nav_with_fifth_point = 0x00100000u;
+constexpr uint32_t path_tf_nav_unblockable = 0x40000000u;
+
 std::vector<nav_area_id> reconstruct_area_path(const nav_mesh_cache& cache, const std::vector<path_node>& nodes, uint32_t start_index, uint32_t goal_index)
 {
   auto area_path = std::vector<nav_area_id>{};
@@ -190,6 +204,103 @@ bool nav_transition_has_clearance(const nav_area_data& from_area, const nav_area
   }
 
   return std::max(overlap_x, overlap_y) >= required_width;
+}
+
+bool area_has_tf_attribute(const nav_area_data& area, uint32_t attributes)
+{
+  return (area.tf_attributes & attributes) != 0;
+}
+
+int capture_point_threshold_for_area(const nav_area_data& area)
+{
+  if (area_has_tf_attribute(area, path_tf_nav_with_second_point))
+  {
+    return 1;
+  }
+  if (area_has_tf_attribute(area, path_tf_nav_with_third_point))
+  {
+    return 2;
+  }
+  if (area_has_tf_attribute(area, path_tf_nav_with_fourth_point))
+  {
+    return 3;
+  }
+  if (area_has_tf_attribute(area, path_tf_nav_with_fifth_point))
+  {
+    return 4;
+  }
+
+  return 0;
+}
+
+bool capture_point_threshold_reached(const nav_area_data& area, const path_request& request)
+{
+  return request.captured_point_index >= capture_point_threshold_for_area(area);
+}
+
+bool nav_area_is_blocked_for_request(const nav_area_data& area, const path_request& request)
+{
+  if (area_has_tf_attribute(area, path_tf_nav_unblockable))
+  {
+    return false;
+  }
+
+  if ((area.flags & nav_area_flag_blocked) != 0)
+  {
+    return true;
+  }
+
+  if (request.team == tf_team_red && area_has_tf_attribute(area, path_tf_nav_blue_one_way_door))
+  {
+    return true;
+  }
+  if (request.team == tf_team_blue && area_has_tf_attribute(area, path_tf_nav_red_one_way_door))
+  {
+    return true;
+  }
+
+  if (!request.setup_finished && area_has_tf_attribute(area, path_tf_nav_blue_setup_gate | path_tf_nav_red_setup_gate))
+  {
+    return true;
+  }
+
+  if (area_has_tf_attribute(area, path_tf_nav_blocked_until_point_capture))
+  {
+    return !capture_point_threshold_reached(area, request);
+  }
+  if (area_has_tf_attribute(area, path_tf_nav_blocked_after_point_capture))
+  {
+    return capture_point_threshold_reached(area, request);
+  }
+
+  return false;
+}
+
+bool recorded_area_is_blocked_for_request(nav_area_id area_id, const path_request& request)
+{
+  const auto match = std::lower_bound(
+    request.recorded_blocked_areas.begin(),
+    request.recorded_blocked_areas.end(),
+    area_id.value,
+    [](const recorded_blocked_area& area, uint32_t id)
+    {
+      return area.area_id.value < id;
+    });
+  if (match == request.recorded_blocked_areas.end() || match->area_id.value != area_id.value)
+  {
+    return false;
+  }
+
+  if (request.team == tf_team_red)
+  {
+    return match->red;
+  }
+  if (request.team == tf_team_blue)
+  {
+    return match->blue;
+  }
+
+  return match->red || match->blue;
 }
 
 Vec3 clamp_point_to_player_clearance(const nav_area_data& area, const Vec3& point)
@@ -438,7 +549,8 @@ path_result solve_path_request(const navbot_mesh& mesh, const navbot_hazards& ha
       {
         continue;
       }
-      if (mesh.area_has_flag(next_id, nav_area_flag_blocked) || mesh.area_has_flag(next_id, nav_area_flag_setup_gate))
+      if (nav_area_is_blocked_for_request(cache.areas[next_index], request) ||
+          recorded_area_is_blocked_for_request(next_id, request))
       {
         continue;
       }

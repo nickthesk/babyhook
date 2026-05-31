@@ -131,6 +131,7 @@ V  o o  V  file: src/cathook.cpp
 #include "features/automation/navbot/navbot_goals.cpp"
 #include "features/automation/navbot/navbot_follow.cpp"
 #include "features/automation/navbot/navbot_debug.cpp"
+#include "features/automation/navbot/navbot_recording.cpp"
 #include "features/automation/nographics/nographics.cpp"
 #include "features/automation/region_selector/region_selector.cpp"
 #include "features/automation/autoitem/autoitem.cpp"
