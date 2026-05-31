@@ -1060,15 +1060,38 @@ start_ipc_server() {
     rm -f /tmp/cat-ipc-server.pid /tmp/cat-ipc-server.log 2>/dev/null || true
     rm -f /dev/shm/cathook_followbot_server 2>/dev/null || true
 
-    "$install_root/ipc/bin/server" -s --reset >/tmp/cat-ipc-server.log 2>&1 &
-    echo "$!" >/tmp/cat-ipc-server.pid
-    sleep 1
-    if ! ps -p "$(cat /tmp/cat-ipc-server.pid)" >/dev/null 2>&1; then
-        echo "IPC server failed to start. Log:" >&2
-        cat /tmp/cat-ipc-server.log >&2 || true
+    if [ -f "$repo_root/Makefile" ] && {
+        [ ! -x "$ipc_server_root/bin/server" ] ||
+        [ "$ipc_server_root/bin/server" -ot "$repo_root/src/core/ipc/ipc_shared.hpp" ] ||
+        [ "$ipc_server_root/bin/server" -ot "$repo_root/src/core/ipc/ipc_protocol.hpp" ] ||
+        [ "$ipc_server_root/bin/server" -ot "$ipc_server_root/src/server.cpp" ];
+    }; then
+        echo "Rebuilding IPC server..."
+        run_make -C "$repo_root" catbot_ipc
+        run_as_root install -m 0755 "$ipc_server_root/bin/server" "$install_root/ipc/bin/server"
+    fi
+
+    if [ ! -x "$install_root/ipc/bin/server" ]; then
+        echo "Missing IPC server binary at $install_root/ipc/bin/server." >&2
         exit 1
     fi
-    chmod 0666 /dev/shm/cathook_followbot_server 2>/dev/null || true
+
+    "$install_root/ipc/bin/server" -s --reset >/tmp/cat-ipc-server.log 2>&1 &
+    ipc_server_pid=$!
+    echo "$ipc_server_pid" >/tmp/cat-ipc-server.pid
+    disown "$ipc_server_pid" 2>/dev/null || true
+
+    for _ in 1 2 3 4 5; do
+        if ps -p "$ipc_server_pid" >/dev/null 2>&1; then
+            chmod 0666 /dev/shm/cathook_followbot_server 2>/dev/null || true
+            return
+        fi
+        sleep 1
+    done
+
+    echo "IPC server failed to start. Log:" >&2
+    cat /tmp/cat-ipc-server.log >&2 || true
+    exit 1
 }
 
 start_detached_panel() {

@@ -4,6 +4,8 @@
 #include <chrono>
 #include <cstdio>
 #include <csignal>
+#include <exception>
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -105,17 +107,25 @@ int main(int argc, char** argv)
   std::signal(SIGINT, signal_handler);
   std::signal(SIGTERM, signal_handler);
 
-  auto memory = cat_ipc::shared_memory::open_or_create_server(reset_existing);
-  auto* state = memory.state();
-
-  while (running.load())
+  try
   {
-    cat_ipc::sweep_dead_peers(state);
-    if (!silent)
+    auto memory = cat_ipc::shared_memory::open_or_create_server(reset_existing);
+    auto* state = memory.state();
+
+    while (running.load())
     {
-      print_status(state);
+      cat_ipc::sweep_dead_peers(state);
+      if (!silent)
+      {
+        print_status(state);
+      }
+      std::this_thread::sleep_for(std::chrono::seconds(2));
     }
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+  }
+  catch (const std::exception& error)
+  {
+    std::cerr << "ipc server failed: " << error.what() << '\n';
+    return 1;
   }
 
   return 0;

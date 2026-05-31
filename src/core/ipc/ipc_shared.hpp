@@ -66,20 +66,38 @@ public:
   {
     if (reset_existing)
     {
-      shm_unlink(shared_memory_name);
+      force_unlink_shared_object();
     }
 
     auto memory = shared_memory{};
-    memory.fd_ = shm_open(shared_memory_name, O_CREAT | O_RDWR, 0666);
-    if (memory.fd_ < 0)
+    for (auto attempt = 0; attempt < 5; ++attempt)
     {
-      throw std::runtime_error(std::string{"shm_open create failed: "} + std::strerror(errno));
+      if (reset_existing)
+      {
+        force_unlink_shared_object();
+      }
+
+      memory.fd_ = shm_open(shared_memory_name, O_CREAT | O_EXCL | O_RDWR, 0666);
+      if (memory.fd_ >= 0)
+      {
+        break;
+      }
+
+      if (errno != EEXIST)
+      {
+        throw std::runtime_error(std::string{"shm_open create failed: "} + std::strerror(errno));
+      }
+
+      force_unlink_shared_object();
+      memory.fd_ = -1;
     }
 
-    if (fchmod(memory.fd_, 0666) != 0)
+    if (memory.fd_ < 0)
     {
-      throw std::runtime_error(std::string{"fchmod failed: "} + std::strerror(errno));
+      throw std::runtime_error("shm_open create failed: stale shared memory could not be removed");
     }
+
+    (void)fchmod(memory.fd_, 0666);
 
     if (ftruncate(memory.fd_, static_cast<off_t>(sizeof(shared_state))) != 0)
     {
@@ -185,6 +203,13 @@ public:
   }
 
 private:
+  static void force_unlink_shared_object()
+  {
+    shm_unlink(shared_memory_name);
+    const auto fs_path = std::string{"/dev/shm"} + shared_memory_name;
+    ::unlink(fs_path.c_str());
+  }
+
   void map()
   {
     auto* ptr = mmap(nullptr, sizeof(shared_state), PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
