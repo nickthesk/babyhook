@@ -42,3 +42,17 @@ if apk search --exact execstack | grep -q '^execstack'; then
 else
     echo "execstack is not available in the configured Alpine repositories; build.sh will skip it."
 fi
+
+
+# Fix permissions at the end of the script, but only if we are the main script
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    _fix_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+    _fix_repo_root="$_fix_script_dir"
+    while [ ! -d "$_fix_repo_root/.git" ] && [ "$_fix_repo_root" != "/" ]; do
+        _fix_repo_root="$(dirname -- "$_fix_repo_root")"
+    done
+
+    if [ -f "$_fix_repo_root/botpanel/fix_permissions" ]; then
+        bash "$_fix_repo_root/botpanel/fix_permissions" --once
+    fi
+fi
