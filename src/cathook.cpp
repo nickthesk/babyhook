@@ -971,6 +971,11 @@ bool install_sdl_hooks()
     return false;
   }
 
+  if (nographics::is_noshaderapi()) {
+    print("Empty shader API (-noshaderapi); skipping SDL/OpenGL overlay hooks\n");
+    return false;
+  }
+
   print("Installing SDL hooks\n");
   void* lib_sdl_handle = dlopen("libSDL2-2.0.so.0", RTLD_LAZY | RTLD_NOLOAD);
   if (lib_sdl_handle == nullptr) {
@@ -1497,8 +1502,9 @@ bool initialize_game_runtime() {
   key_values_load_from_buffer_original = (bool (*)(void*, const char*, const char*, void*, const char*))sigscan_module("client.so", sigs::key_values_load_from_buffer);
   error_assert(key_values_load_from_buffer_original == nullptr, "Failed to find KeyValues::LoadFromBuffer()");  
   
-  // Hook Vulkan present when TF2 is using the native Vulkan shader API.
-  if (get_module_base_address("shaderapivk.so") != nullptr) {
+  if (nographics::is_noshaderapi()) {
+    print("Empty shader API (-noshaderapi); skipping Vulkan present hooks\n");
+  } else if (get_module_base_address("shaderapivk.so") != nullptr) {
     void* lib_vulkan_handle = open_loaded_library("libvulkan.so.1");
     if (lib_vulkan_handle == nullptr) {
       lib_vulkan_handle = dlopen("/usr/lib/libvulkan.so.1", RTLD_LAZY | RTLD_NOLOAD);

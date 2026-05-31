@@ -75,7 +75,8 @@ extern "C" void* dlopen(const char* file, int mode) __THROWNL
     return nullptr;
   }
 
-  void* handle = real_dlopen(file, mode);
+  const char* redirected_file = nographics::redirect_shaderapi_path(file);
+  void* handle = real_dlopen(redirected_file, mode);
   if (handle != nullptr && is_launcher_path(file))
   {
     patch_launcher_source_lock();

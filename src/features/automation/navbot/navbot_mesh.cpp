@@ -690,6 +690,7 @@ bool navbot_mesh::rebuild_from_current_map()
   if (loaded)
   {
     rebuild_categories();
+    build_spatial_index();
   }
 
   cache_.loaded = loaded;
@@ -712,6 +713,7 @@ void navbot_mesh::clear_nav_data()
   cache_.loaded = false;
   cache_.areas.clear();
   cache_.area_lookup.clear();
+  cache_.grid = {};
   cache_.health_areas.clear();
   cache_.ammo_areas.clear();
   cache_.control_point_areas.clear();
@@ -754,7 +756,7 @@ const nav_area_data* navbot_mesh::find_area(nav_area_id id) const
   return &cache_.areas[it->second];
 }
 
-nav_area_id navbot_mesh::find_closest_area(const Vec3& world) const
+nav_area_id navbot_mesh::find_closest_area_linear(const Vec3& world) const
 {
   nav_area_id best{};
   auto best_distance = 0.0f;
@@ -772,6 +774,142 @@ nav_area_id navbot_mesh::find_closest_area(const Vec3& world) const
   }
 
   return best;
+}
+
+nav_area_id navbot_mesh::find_closest_area(const Vec3& world) const
+{
+  const auto& grid = cache_.grid;
+  if (!grid.valid())
+  {
+    return find_closest_area_linear(world);
+  }
+
+  const int query_column =
+    std::clamp(static_cast<int>((world.x - grid.min_x) / grid.cell_size), 0, grid.columns - 1);
+  const int query_row =
+    std::clamp(static_cast<int>((world.y - grid.min_y) / grid.cell_size), 0, grid.rows - 1);
+
+  nav_area_id best{};
+  float best_distance = std::numeric_limits<float>::max();
+  bool found = false;
+  const int max_ring = std::max(grid.columns, grid.rows);
+
+  for (int ring = 0; ring <= max_ring; ++ring)
+  {
+    if (found && ring > 0)
+    {
+      const float ring_min_distance = static_cast<float>(ring - 1) * grid.cell_size;
+      if (ring_min_distance * ring_min_distance > best_distance)
+      {
+        break;
+      }
+    }
+
+    const int row_begin = query_row - ring;
+    const int row_end = query_row + ring;
+    const int column_begin = query_column - ring;
+    const int column_end = query_column + ring;
+
+    for (int cy = row_begin; cy <= row_end; ++cy)
+    {
+      if (cy < 0 || cy >= grid.rows)
+      {
+        continue;
+      }
+
+      for (int cx = column_begin; cx <= column_end; ++cx)
+      {
+        if (cx < 0 || cx >= grid.columns)
+        {
+          continue;
+        }
+
+        if (ring > 0 && std::max(std::abs(cx - query_column), std::abs(cy - query_row)) != ring)
+        {
+          continue;
+        }
+
+        for (uint32_t index : grid.cells[static_cast<size_t>(cy) * grid.columns + cx])
+        {
+          const auto& area = cache_.areas[index];
+          const float distance = distance_to_area_sq(area, world);
+          if (!found || distance < best_distance)
+          {
+            found = true;
+            best = area.id;
+            best_distance = distance;
+          }
+        }
+      }
+    }
+  }
+
+  if (!found)
+  {
+    return find_closest_area_linear(world);
+  }
+
+  return best;
+}
+
+void navbot_mesh::build_spatial_index()
+{
+  auto& grid = cache_.grid;
+  grid = {};
+
+  if (cache_.areas.empty())
+  {
+    return;
+  }
+
+  float min_x = std::numeric_limits<float>::max();
+  float min_y = std::numeric_limits<float>::max();
+  float max_x = std::numeric_limits<float>::lowest();
+  float max_y = std::numeric_limits<float>::lowest();
+  for (const auto& area : cache_.areas)
+  {
+    min_x = std::min(min_x, std::min(area.nw_corner.x, area.se_corner.x));
+    min_y = std::min(min_y, std::min(area.nw_corner.y, area.se_corner.y));
+    max_x = std::max(max_x, std::max(area.nw_corner.x, area.se_corner.x));
+    max_y = std::max(max_y, std::max(area.nw_corner.y, area.se_corner.y));
+  }
+
+  constexpr float cell_size = 256.0f;
+  constexpr int max_dimension = 512;
+
+  const float span_x = std::max(0.0f, max_x - min_x);
+  const float span_y = std::max(0.0f, max_y - min_y);
+  const int columns = std::clamp(static_cast<int>(span_x / cell_size) + 1, 1, max_dimension);
+  const int rows = std::clamp(static_cast<int>(span_y / cell_size) + 1, 1, max_dimension);
+
+  grid.min_x = min_x;
+  grid.min_y = min_y;
+  grid.cell_size = cell_size;
+  grid.columns = columns;
+  grid.rows = rows;
+  grid.cells.assign(static_cast<size_t>(columns) * static_cast<size_t>(rows), {});
+
+  for (uint32_t index = 0; index < cache_.areas.size(); ++index)
+  {
+    const auto& area = cache_.areas[index];
+    const float lo_x = std::min(area.nw_corner.x, area.se_corner.x);
+    const float hi_x = std::max(area.nw_corner.x, area.se_corner.x);
+    const float lo_y = std::min(area.nw_corner.y, area.se_corner.y);
+    const float hi_y = std::max(area.nw_corner.y, area.se_corner.y);
+
+    const int cx0 = std::clamp(static_cast<int>((lo_x - min_x) / cell_size), 0, columns - 1);
+    const int cx1 = std::clamp(static_cast<int>((hi_x - min_x) / cell_size), 0, columns - 1);
+    const int cy0 = std::clamp(static_cast<int>((lo_y - min_y) / cell_size), 0, rows - 1);
+    const int cy1 = std::clamp(static_cast<int>((hi_y - min_y) / cell_size), 0, rows - 1);
+
+    for (int cy = cy0; cy <= cy1; ++cy)
+    {
+      for (int cx = cx0; cx <= cx1; ++cx)
+      {
+        grid.cells[static_cast<size_t>(cy) * columns + cx].push_back(index);
+      }
+    }
+  }
 }
 
 Vec3 navbot_mesh::get_nearest_point(nav_area_id area_id, const Vec3& world) const
@@ -825,15 +963,50 @@ std::vector<navbot_mesh::nearby_area> navbot_mesh::areas_in_radius(const Vec3& o
 
   const auto radius_sq = radius * radius;
   result.reserve(64);
-  for (const auto& area : cache_.areas)
+
+  const auto& grid = cache_.grid;
+  if (!grid.valid())
   {
-    auto distance_sq = distance_to_area_sq(area, origin);
-    if (distance_sq > radius_sq)
+    for (const auto& area : cache_.areas)
     {
-      continue;
+      auto distance_sq = distance_to_area_sq(area, origin);
+      if (distance_sq <= radius_sq)
+      {
+        result.push_back(nearby_area{area.id, distance_sq});
+      }
     }
 
-    result.push_back(nearby_area{area.id, distance_sq});
+    return result;
+  }
+
+  const int cx0 = std::clamp(static_cast<int>((origin.x - radius - grid.min_x) / grid.cell_size), 0, grid.columns - 1);
+  const int cx1 = std::clamp(static_cast<int>((origin.x + radius - grid.min_x) / grid.cell_size), 0, grid.columns - 1);
+  const int cy0 = std::clamp(static_cast<int>((origin.y - radius - grid.min_y) / grid.cell_size), 0, grid.rows - 1);
+  const int cy1 = std::clamp(static_cast<int>((origin.y + radius - grid.min_y) / grid.cell_size), 0, grid.rows - 1);
+
+  for (int cy = cy0; cy <= cy1; ++cy)
+  {
+    for (int cx = cx0; cx <= cx1; ++cx)
+    {
+      for (uint32_t index : grid.cells[static_cast<size_t>(cy) * grid.columns + cx])
+      {
+        const auto& area = cache_.areas[index];
+        const auto distance_sq = distance_to_area_sq(area, origin);
+        if (distance_sq > radius_sq)
+        {
+          continue;
+        }
+
+        if (std::find_if(result.begin(), result.end(), [&](const nearby_area& entry) {
+              return entry.id.value == area.id.value;
+            }) != result.end())
+        {
+          continue;
+        }
+
+        result.push_back(nearby_area{area.id, distance_sq});
+      }
+    }
   }
 
   return result;

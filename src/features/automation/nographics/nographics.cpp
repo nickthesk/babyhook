@@ -16,7 +16,9 @@ V  o o  V  file: src/features/automation/nographics/nographics.cpp
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <initializer_list>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -35,6 +37,10 @@ V  o o  V  file: src/features/automation/nographics/nographics.cpp
 
 #include "funchook/funchook.h"
 #include "libsigscan/libsigscan.h"
+
+#if defined(__linux__)
+#include <dlfcn.h>
+#endif
 
 bool write_to_table(void** vtable, int index, void* func);
 void* get_interface(const char* lib_path, const char* version);
@@ -221,6 +227,51 @@ bool module_is_loaded(const char* module_name)
 
   sigscan_free_module_bounds(bounds);
   return true;
+}
+
+bool command_line_has_noshaderapi()
+{
+  std::ifstream cmdline{ "/proc/self/cmdline", std::ios::binary };
+  if (!cmdline)
+  {
+    return false;
+  }
+
+  std::string argument{};
+  for (char value{}; cmdline.get(value);)
+  {
+    if (value == '\0')
+    {
+      if (argument == "-noshaderapi")
+      {
+        return true;
+      }
+      argument.clear();
+      continue;
+    }
+    argument.push_back(value);
+  }
+
+  return argument == "-noshaderapi";
+}
+
+bool empty_shader_api_is_active()
+{
+  if (!module_is_loaded("shaderapiempty.so"))
+  {
+    return false;
+  }
+
+  return !module_is_loaded("shaderapidx9.so") &&
+         !module_is_loaded("shaderapivk.so") &&
+         !module_is_loaded("togl.so");
+}
+
+bool is_shaderapivk_path(std::string_view library_path)
+{
+  const auto slash = library_path.find_last_of('/');
+  const std::string_view name = slash == std::string_view::npos ? library_path : library_path.substr(slash + 1);
+  return name == "shaderapivk.so" || name == "shaderapivk";
 }
 
 std::string_view library_basename(const char* library_path)
@@ -2113,7 +2164,86 @@ bool is_enabled()
 
 bool should_skip_rendering_hooks()
 {
-  return textmode_build || (config.misc.exploits.null_graphics && config.misc.exploits.null_graphics_render_stubs);
+  return textmode_build || is_noshaderapi() ||
+         (config.misc.exploits.null_graphics && config.misc.exploits.null_graphics_render_stubs);
+}
+
+bool is_noshaderapi()
+{
+  static const bool from_command_line = command_line_has_noshaderapi();
+  if (from_command_line)
+  {
+    return true;
+  }
+
+  static int from_modules = -1;
+  if (from_modules < 0 && (material_system != nullptr || module_is_loaded("materialsystem.so")))
+  {
+    from_modules = empty_shader_api_is_active() ? 1 : 0;
+  }
+
+  return from_modules == 1;
+}
+
+const char* redirect_shaderapi_path(const char* library_path)
+{
+  if (library_path == nullptr || !is_noshaderapi())
+  {
+    return library_path;
+  }
+
+  const std::string_view path{ library_path };
+  if (!is_shaderapivk_path(path))
+  {
+    return library_path;
+  }
+
+  thread_local std::string redirected_path{};
+  const auto slash = path.find_last_of('/');
+  if (slash == std::string_view::npos)
+  {
+    redirected_path = "shaderapiempty.so";
+  }
+  else
+  {
+    redirected_path.assign(path.substr(0, slash + 1));
+    redirected_path += "shaderapiempty.so";
+  }
+
+  return redirected_path.c_str();
 }
 
 } // namespace nographics
+
+#if defined(__linux__)
+extern "C" __attribute__((visibility("default"))) SDL_Window* SDL_CreateWindow(
+  const char* title,
+  int x,
+  int y,
+  int w,
+  int h,
+  unsigned int flags)
+{
+  using sdl_create_window_fn = SDL_Window* (*)(const char*, int, int, int, int, unsigned int);
+  static sdl_create_window_fn sdl_create_window_original =
+    reinterpret_cast<sdl_create_window_fn>(dlsym(RTLD_NEXT, "SDL_CreateWindow"));
+
+  if (sdl_create_window_original == nullptr)
+  {
+    return nullptr;
+  }
+
+  constexpr unsigned int sdl_window_opengl = 0x00000002u;
+  constexpr unsigned int sdl_window_hidden = 0x00000008u;
+  constexpr unsigned int sdl_window_vulkan = 0x10000000u;
+
+  unsigned int fixed_flags = flags;
+  if (nographics::is_noshaderapi())
+  {
+    fixed_flags &= ~(sdl_window_opengl | sdl_window_vulkan);
+    fixed_flags |= sdl_window_hidden;
+  }
+
+  return sdl_create_window_original(title, x, y, w, h, fixed_flags);
+}
+#endif

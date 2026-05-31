@@ -109,10 +109,17 @@ void reset_all_state() {
 
 void clear_invalid_state(Player* localplayer) {
   aimbot_state& state = current_state();
+  if (!state.active_target) {
+    state.target_player = nullptr;
+    state.target_entity = nullptr;
+  }
+
   if (active_target_player() != nullptr &&
       (!entity_cache_snapshot_contains_player(active_target_player()) ||
         aimbot_should_skip_player(localplayer, active_target_player()))) {
     state.target_player = nullptr;
+    state.target_entity = nullptr;
+    state.active_target = false;
   }
 
   if (state.preference.player != nullptr &&
@@ -121,8 +128,12 @@ void clear_invalid_state(Player* localplayer) {
     clear_preference();
   }
 
-  if (state.target_player == nullptr && state.target_entity != nullptr && state.target_entity->get_class_id() == class_id::PLAYER) {
+  if (state.active_target &&
+      state.target_player == nullptr &&
+      state.target_entity != nullptr &&
+      state.target_entity->get_class_id() == class_id::PLAYER) {
     state.target_entity = nullptr;
+    state.active_target = false;
   }
 }
 

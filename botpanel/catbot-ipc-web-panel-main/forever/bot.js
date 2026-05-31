@@ -25,10 +25,12 @@ const steam_window_options_default = VISIBLE_WINDOWS
       + ' -cef-disable-breakpad -cef-disable-logging -cef-disable-js-logging -cef-disable-hevc'
       + ' -disablehighdpi -nominidumps -nobreakpad -skipstreamingdrivers';
 const steam_window_options = process.env.CAT_STEAM_WINDOW_OPTIONS || steam_window_options_default;
-const game_window_options_default = VISIBLE_WINDOWS ? '-gl -sw -w 1280 -h 720' : '-gl -silent -sw -w 1 -h 480';
+const game_window_options_default = VISIBLE_WINDOWS
+    ? '-gl -sw -w 1280 -h 720'
+    : (TEXTMODE_GAME ? '-silent -sw -w 1 -h 480' : '-gl -silent -sw -w 1 -h 480');
 const GAME_WINDOW_OPTIONS = process.env.CAT_GAME_WINDOW_OPTIONS || game_window_options_default;
 const GAME_MODE_OPTIONS = TEXTMODE_GAME
-    ? '-nomouse -nosound'
+    ? '-noshaderapi -nomouse -nosound'
     : '';
 const textmode_allocator_assignments = TEXTMODE_GAME
     ? 'MIMALLOC_ARENA_EAGER_COMMIT=0 MIMALLOC_EAGER_COMMIT_DELAY=0 MIMALLOC_PURGE_DELAY=0 MIMALLOC_RESET_DELAY=0 MIMALLOC_ALLOW_LARGE_OS_PAGES=0'
@@ -43,10 +45,28 @@ const PER_BOT_X_SCREEN = process.env.CAT_PER_BOT_X_SCREEN || process.env.CAT_X_S
 const HEADLESS_STEAM_GRAPHICS = !VISIBLE_WINDOWS && process.env.CAT_STEAM_HEADLESS_GRAPHICS !== '0';
 const HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV = HEADLESS_STEAM_GRAPHICS ? '--env=LIBGL_ALWAYS_SOFTWARE=1 --env=GALLIUM_DRIVER=llvmpipe --env=MESA_LOADER_DRIVER_OVERRIDE=llvmpipe --env=__GLX_VENDOR_LIBRARY_NAME=mesa --env=VK_ICD_FILENAMES=/dev/null --env=DISABLE_VK_LAYER_VALVE_steam_overlay_1=1 --env=DISABLE_VK_LAYER_VALVE_steam_fossilize_1=1' : '';
 const HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS = HEADLESS_STEAM_GRAPHICS ? 'LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_LOADER_DRIVER_OVERRIDE=llvmpipe __GLX_VENDOR_LIBRARY_NAME=mesa VK_ICD_FILENAMES=/dev/null DISABLE_VK_LAYER_VALVE_steam_overlay_1=1 DISABLE_VK_LAYER_VALVE_steam_fossilize_1=1' : '';
+const game_port_base_value = Number.parseInt(process.env.CAT_GAME_PORT_BASE || String(config.game_port_base || '30000'), 10);
+const game_port_base = (Number.isSafeInteger(game_port_base_value) && game_port_base_value >= 1024) ? game_port_base_value : 30000;
+const game_port_stride_value = Number.parseInt(process.env.CAT_GAME_PORT_STRIDE || String(config.game_port_stride || '10'), 10);
+const game_port_stride = (Number.isSafeInteger(game_port_stride_value) && game_port_stride_value >= 10) ? game_port_stride_value : 10;
+
+function game_port_options(botid) {
+    const bot_index = Number.isSafeInteger(botid) && botid >= 0 ? botid : 0;
+    const bot_port_base = game_port_base + bot_index * game_port_stride;
+    const tv_port = bot_port_base + 1;
+    const client_port_min = bot_port_base + 2;
+    const client_port_max = bot_port_base + game_port_stride - 1;
+
+    if (bot_port_base < 1024 || client_port_max > 65535) {
+        throw new Error(`Invalid TF2 port range for bot ${botid}: ${bot_port_base}-${client_port_max}`);
+    }
+
+    return `-tv_port ${tv_port} +tv_port ${tv_port} -port ${bot_port_base} +port ${bot_port_base} +clientport ${client_port_min}-${client_port_max}`;
+}
 
 const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
-const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync +volume 0 -noqueuedpacketprocessing -limitvsconst -nocrashdialog -noipx -threads 1 -tv_port 70 +tv_port 70 -port 60 +port 60 -nosteamcontroller -low -insecure +fps_max 30 +clientport 27006-27014'`
+const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync +volume 0 -noqueuedpacketprocessing -limitvsconst -nocrashdialog -noipx -threads 1 %GAME_PORT_OPTIONS% -nosteamcontroller -low -insecure +fps_max 30'`
 const LAUNCH_OPTIONS_GAME_STEAM = `firejail --join=%JAILNAME% bash -c '${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %STEAM% -applaunch 440'`
 const GAME_LIBRARY_PATH = './bin:./bin/linux64:./tf/bin:./tf/bin/linux64:./platform:./platform/bin:./platform/bin/linux64:.';
 
@@ -2195,6 +2215,7 @@ class Bot extends EventEmitter {
 
         self.log(`Resolved SteamID32 ${steamid32} for ${self.account.login}`);
         const game_launch_options = TF2_LAUNCH_MODE === 'steam' ? LAUNCH_OPTIONS_GAME_STEAM : LAUNCH_OPTIONS_GAME;
+        const game_port_launch_options = game_port_options(self.botid);
         if (TF2_LAUNCH_MODE === 'steam') {
             const steam_tf2_launch_options = [
                 `SteamAppId=440`,
@@ -2211,7 +2232,7 @@ class Bot extends EventEmitter {
                 `LD_PRELOAD="${bash_double_quote_escape(game_preload)}"`,
                 textmode_allocator_assignments,
                 `%command%`,
-                `-steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +fps_max 30 +clientport 27006-27014`
+                `-steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +fps_max 30 ${game_port_launch_options}`
             ].join(' ');
 
             if (!self.setSteamTf2LaunchOptions(steamid32, steam_tf2_launch_options)) {
@@ -2229,6 +2250,7 @@ class Bot extends EventEmitter {
             .replace("%BOT_ID%", bash_double_quote_escape(String(self.botid)))
             .replace("%BOT_NAME%", bash_double_quote_escape(self.name))
             .replace("%STEAMID32%", steamid32)
+            .replace("%GAME_PORT_OPTIONS%", game_port_launch_options)
             // Firejail jail name used by this users steam
             .replace("%JAILNAME%", self.name)
             // cathook

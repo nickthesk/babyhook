@@ -47,7 +47,7 @@ struct module_mapping
 
 struct signal_state
 {
-    std::array<struct sigaction, 4> previous_actions{};
+    std::array<struct sigaction, 5> previous_actions{};
     bool installed{};
 };
 
@@ -592,7 +592,7 @@ void exception_handler::install(const std::filesystem::path& log_file_path)
     action.sa_flags = SA_SIGINFO | SA_RESETHAND;
     ::sigemptyset(&action.sa_mask);
 
-    constexpr int k_signals[]{ SIGSEGV, SIGABRT, SIGBUS, SIGILL };
+    constexpr int k_signals[]{ SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE };
     for (std::size_t index{}; index < std::size(k_signals); ++index)
     {
         if (::sigaction(k_signals[index], &action, &handler_state.previous_actions[index]) != 0)
@@ -619,7 +619,7 @@ void exception_handler::uninstall()
         return;
     }
 
-    constexpr int k_signals[]{ SIGSEGV, SIGABRT, SIGBUS, SIGILL };
+    constexpr int k_signals[]{ SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE };
     for (std::size_t index{}; index < std::size(k_signals); ++index)
     {
         static_cast<void>(::sigaction(k_signals[index], &handler_state.previous_actions[index], nullptr));

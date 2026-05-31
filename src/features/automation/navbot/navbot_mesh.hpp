@@ -74,6 +74,22 @@ struct nav_area_data
   std::vector<nav_connection> connections{};
 };
 
+struct nav_spatial_grid
+{
+  float min_x = 0.0f;
+  float min_y = 0.0f;
+  float cell_size = 0.0f;
+  int columns = 0;
+  int rows = 0;
+  std::vector<std::vector<uint32_t>> cells{}; // row-major: cells[row * columns + column]
+
+  [[nodiscard]] bool valid() const
+  {
+    return cell_size > 0.0f && columns > 0 && rows > 0 &&
+           cells.size() == static_cast<size_t>(columns) * static_cast<size_t>(rows);
+  }
+};
+
 struct nav_mesh_cache
 {
   bool loaded = false;
@@ -81,6 +97,7 @@ struct nav_mesh_cache
   std::string nav_file_path{};
   std::vector<nav_area_data> areas{};
   std::unordered_map<uint32_t, uint32_t> area_lookup{};
+  nav_spatial_grid grid{};
   std::vector<nav_area_id> health_areas{};
   std::vector<nav_area_id> ammo_areas{};
   std::vector<nav_area_id> control_point_areas{};
@@ -119,6 +136,8 @@ private:
   bool load_current_map_file();
   void clear_nav_data();
   void rebuild_categories();
+  void build_spatial_index();
+  [[nodiscard]] nav_area_id find_closest_area_linear(const Vec3& world) const;
 
   nav_mesh_cache cache_{};
 };

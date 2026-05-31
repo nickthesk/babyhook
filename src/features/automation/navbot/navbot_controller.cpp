@@ -44,6 +44,7 @@ namespace
 
 navbot_controller* global_controller = nullptr;
 constexpr float goal_refresh_interval = 1.0f;
+constexpr float goal_retry_interval = 0.2f;
 constexpr float path_retry_interval = 1.0f;
 constexpr float weapon_switch_interval = 0.35f;
 constexpr float navbot_throwable_look_suppress_seconds = 0.55f;
@@ -997,6 +998,7 @@ void navbot_controller::clear_runtime_state()
   active_path_ = path_result{};
   active_goal_ = {};
   pending_job_ = {};
+  next_goal_retry_time_ = 0.0f;
   next_hazard_update_time_ = 0.0f;
   next_weapon_switch_time_ = 0.0f;
   last_requested_weapon_slot_ = 0;
@@ -1167,9 +1169,11 @@ void navbot_controller::on_create_move(user_cmd* user_cmd)
   }
 
   const auto has_active_path_or_pending_request = follower_.has_path() || pending_job_.generation_id == current_generation_id_;
-  if (!active_goal_.valid || current_time >= next_goal_refresh_time_ || !has_active_path_or_pending_request)
+  const bool needs_new_goal = !active_goal_.valid || !has_active_path_or_pending_request;
+  if ((needs_new_goal && current_time >= next_goal_retry_time_) || current_time >= next_goal_refresh_time_)
   {
     next_goal_refresh_time_ = current_time + goal_refresh_interval;
+    next_goal_retry_time_ = current_time + goal_retry_interval;
 
     auto next_goal = goals_.select_goal(mesh_, localplayer, current_time);
     if (should_replace_goal(active_goal_, next_goal, has_active_path_or_pending_request, localplayer))
