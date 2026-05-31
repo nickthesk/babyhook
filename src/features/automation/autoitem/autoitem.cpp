@@ -103,6 +103,7 @@ std::array<fallback_state, 3> g_fallback_states{};
 int g_hat_rotation_offset = 0;
 int g_pending_pickup_ack_attempts = 0;
 float g_next_pending_pickup_ack_time = 0.0f;
+float g_next_inventory_dump_time = 0.0f;
 bool g_initialize_diagnostics_emitted = false;
 int g_initialize_retry_count = 0;
 float g_next_initialize_retry_time = 0.0f;
@@ -437,6 +438,44 @@ std::optional<std::uint64_t> get_first_item_id_of_item_def(const int item_def_id
   return item_ids.front();
 }
 
+void debug_dump_local_inventory()
+{
+  if (!config.misc.automation.auto_item_debug)
+  {
+    return;
+  }
+  if (global_vars != nullptr && global_vars->realtime < g_next_inventory_dump_time)
+  {
+    return;
+  }
+  g_next_inventory_dump_time = global_vars != nullptr ? global_vars->realtime + 3.0f : 0.0f;
+
+  auto* inventory = reinterpret_cast<std::uint8_t*>(get_local_inventory());
+  if (inventory == nullptr)
+  {
+    debug_log("inventory dump: get_local_inventory() returned null\n");
+    return;
+  }
+
+  auto* item_array = read_unaligned<std::uint8_t*>(inventory + inventory_item_array_offset);
+  const int item_count = read_unaligned<int>(inventory + inventory_item_count_offset);
+  debug_log("inventory dump: inv=%p array=%p count=%d\n", inventory, item_array, item_count);
+  if (item_array == nullptr || item_count <= 0)
+  {
+    return;
+  }
+
+  const int sample = std::min(item_count, 24);
+  for (int index = 0; index < sample; ++index)
+  {
+    auto* item = item_array + (static_cast<std::uintptr_t>(index) * inventory_item_stride);
+    debug_log("  [%d] def=%u id=%llu\n",
+      index,
+      read_item_def_id(item),
+      static_cast<unsigned long long>(read_item_id(item)));
+  }
+}
+
 bool has_item_def(const int item_def_id)
 {
   return get_first_item_id_of_item_def(item_def_id).has_value();
@@ -700,6 +739,7 @@ bool equip_item(const int class_id, const int slot, const int item_def_id, const
   if (!item_id)
   {
     debug_log("no owned item id for def=%d (class=%d slot=%d)\n", item_def_id, class_id, loadout_slot);
+    debug_dump_local_inventory();
     if (get_missing)
     {
       get_item(item_def_id, allow_rent);

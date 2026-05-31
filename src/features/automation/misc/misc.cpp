@@ -1254,10 +1254,34 @@ void automation_controller::on_dispatch_user_message(int message_type, const bf_
 
 void automation_controller::on_game_event(GameEvent* event)
 {
+  if (event != nullptr)
+  {
+    const char* name = event->get_name();
+    if (name != nullptr)
+    {
+      if (std::strcmp(name, "teamplay_round_start") == 0
+        || std::strcmp(name, "teamplay_setup_finished") == 0)
+      {
+        warmup_active_ = false;
+      }
+      else if (std::strcmp(name, "teamplay_waiting_begins") == 0
+        || std::strcmp(name, "teamplay_restart_round") == 0
+        || std::strcmp(name, "teamplay_round_win") == 0)
+      {
+        warmup_active_ = true;
+      }
+    }
+  }
+
   run_auto_vote_map(event);
   run_autotaunt(event);
   run_custom_announcer(event);
   run_killsay(event);
+}
+
+bool automation_controller::is_warmup_active() const
+{
+  return warmup_active_;
 }
 
 void automation_controller::apply_misc_convars()
@@ -1345,6 +1369,11 @@ void automation_controller::apply_misc_convars()
 void automation_controller::run_auto_class_select()
 {
   if (!config.misc.automation.auto_class_select)
+  {
+    return;
+  }
+
+  if (config.misc.automation.auto_class_dont_join_during_warmup && warmup_active_)
   {
     return;
   }

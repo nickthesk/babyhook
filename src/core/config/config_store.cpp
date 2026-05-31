@@ -396,9 +396,11 @@ void config_store::import_config(const Config& config)
     set_string("misc.menu.custom_font", config.misc.menu.custom_font);
     set_bool("misc.automation.auto_class_select", config.misc.automation.auto_class_select);
     set_int("misc.automation.class_selected", static_cast<int>(config.misc.automation.class_selected));
+    set_bool("misc.automation.auto_class_dont_join_during_warmup", config.misc.automation.auto_class_dont_join_during_warmup);
     set_bool("misc.automation.anti_afk", config.misc.automation.anti_afk);
     set_bool("misc.automation.anti_autobalance", config.misc.automation.anti_autobalance);
     set_bool("misc.automation.anti_motd", config.misc.automation.anti_motd);
+    set_bool("misc.automation.anti_motd_dont_close_during_warmup", config.misc.automation.anti_motd_dont_close_during_warmup);
     set_bool("misc.automation.auto_vote_map", config.misc.automation.auto_vote_map);
     set_int("misc.automation.auto_vote_map_option", config.misc.automation.auto_vote_map_option);
     set_bool("misc.automation.noisemaker_spam", config.misc.automation.noisemaker_spam);
@@ -891,9 +893,15 @@ void config_store::export_config(Config& config) const
         get_int("misc.automation.class_selected", static_cast<int>(config.misc.automation.class_selected)),
         0,
         9));
+    config.misc.automation.auto_class_dont_join_during_warmup = get_bool(
+        "misc.automation.auto_class_dont_join_during_warmup",
+        config.misc.automation.auto_class_dont_join_during_warmup);
     config.misc.automation.anti_afk = get_bool("misc.automation.anti_afk", config.misc.automation.anti_afk);
     config.misc.automation.anti_autobalance = get_bool("misc.automation.anti_autobalance", config.misc.automation.anti_autobalance);
     config.misc.automation.anti_motd = get_bool("misc.automation.anti_motd", config.misc.automation.anti_motd);
+    config.misc.automation.anti_motd_dont_close_during_warmup = get_bool(
+        "misc.automation.anti_motd_dont_close_during_warmup",
+        config.misc.automation.anti_motd_dont_close_during_warmup);
     config.misc.automation.auto_vote_map = get_bool("misc.automation.auto_vote_map", config.misc.automation.auto_vote_map);
     config.misc.automation.auto_vote_map_option = std::clamp(
         get_int("misc.automation.auto_vote_map_option", config.misc.automation.auto_vote_map_option),

@@ -627,9 +627,11 @@ struct Misc {
 
     bool auto_class_select = false;
     enum tf_class class_selected = tf_class::SNIPER;
+    bool auto_class_dont_join_during_warmup = false;
     bool anti_afk = false;
     bool anti_autobalance = false;
     bool anti_motd = false;
+    bool anti_motd_dont_close_during_warmup = false;
     bool auto_report = false;
     bool auto_vote_map = false;
     int auto_vote_map_option = 2;

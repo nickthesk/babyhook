@@ -123,7 +123,14 @@ void frame_stage_notify_hook(void* me, ClientFrameStage current_stage) {
         if (entity->is_network_class("CTFPumpkinBomb")) {
           entity_cache[class_id::PUMPKIN].push_back(entity);
         }
-    
+
+	if (entity->is_network_class("CTFObjectiveResource")) {
+	  entity_cache[class_id::OBJECTIVE_RESOURCE].push_back(entity);
+	}
+	else if (entity->is_network_class("CCaptureFlag")) {
+	  entity_cache[class_id::CAPTURE_FLAG].push_back(entity);
+	}
+
 	switch (entity->get_class_id()) {
 	case class_id::PLAYER:
 	  {
@@ -168,12 +175,6 @@ void frame_stage_notify_hook(void* me, ClientFrameStage current_stage) {
 
 	    break;
 	  }
-	  
-	case class_id::CAPTURE_FLAG:
-	  entity_cache[class_id::CAPTURE_FLAG].push_back(entity); break;
-
-	case class_id::OBJECTIVE_RESOURCE:
-	  entity_cache[class_id::OBJECTIVE_RESOURCE].push_back(entity); break;
 
 	case class_id::SENTRY:
 	case class_id::OBJECT_CART_DISPENSER:

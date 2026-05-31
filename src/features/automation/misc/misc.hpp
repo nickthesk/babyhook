@@ -33,6 +33,8 @@ public:
   void on_dispatch_user_message(int message_type, const bf_read* message_data);
   void on_game_event(GameEvent* event);
 
+  [[nodiscard]] bool is_warmup_active() const;
+
 private:
   void apply_misc_convars();
   void run_auto_class_select();
@@ -70,6 +72,7 @@ private:
   float queue_loading_start_time_ = 0.0f;
   float last_active_input_time_ = 0.0f;
   bool was_in_game_ = false;
+  bool warmup_active_ = false;
   bool cheats_bypass_applied_ = false;
   int original_sv_cheats_value_ = 0;
   bool vac_bypass_applied_ = false;

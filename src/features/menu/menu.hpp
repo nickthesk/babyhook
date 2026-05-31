@@ -2010,6 +2010,7 @@ static void draw_cat_bot_content() {
   cat_menu::flow_panel("Autojoin and Taunt", 0, 138.0f, [&]() {
     cat_menu::checkbox("Auto class select", &config.misc.automation.auto_class_select);
     cat_menu::combo("Preferred class", (int*)&config.misc.automation.class_selected, class_items, IM_ARRAYSIZE(class_items));
+    cat_menu::checkbox("Don't join class during warmup", &config.misc.automation.auto_class_dont_join_during_warmup);
     cat_menu::checkbox("Auto taunt", &config.misc.automation.autotaunt);
     cat_menu::slider_float("Taunt chance", &config.misc.automation.autotaunt_chance, 0.0f, 100.0f, "%.0f%%");
     cat_menu::slider_float("Taunt safety distance", &config.misc.automation.autotaunt_safety_distance, 0.0f, 5000.0f, "%.0f HU");
@@ -2035,6 +2036,7 @@ static void draw_cat_bot_content() {
     cat_menu::checkbox("Anti AFK", &config.misc.automation.anti_afk);
     cat_menu::checkbox("Anti autobalance", &config.misc.automation.anti_autobalance);
     cat_menu::checkbox("Anti MOTD", &config.misc.automation.anti_motd);
+    cat_menu::checkbox("Don't close MOTD during warmup", &config.misc.automation.anti_motd_dont_close_during_warmup);
     cat_menu::checkbox("Auto report", &config.misc.automation.auto_report);
     cat_menu::checkbox("Auto vote map", &config.misc.automation.auto_vote_map);
     cat_menu::slider_int("Vote option", &config.misc.automation.auto_vote_map_option, 0, 2);
@@ -2122,6 +2124,7 @@ static void draw_queue_content() {
   cat_menu::flow_panel("Class", 0, 104.0f, [&]() {
     cat_menu::checkbox("Auto class select", &config.misc.automation.auto_class_select);
     cat_menu::combo("Preferred class", (int*)&config.misc.automation.class_selected, class_items, IM_ARRAYSIZE(class_items));
+    cat_menu::checkbox("Don't join class during warmup", &config.misc.automation.auto_class_dont_join_during_warmup);
   });
   cat_menu::flow_panel("Queue", 1, 248.0f, [&]() {
     cat_menu::checkbox("Auto queue", &config.misc.automation.auto_queue);
@@ -2173,6 +2176,7 @@ static void draw_automation_utilities_content() {
     cat_menu::checkbox("Anti AFK", &config.misc.automation.anti_afk);
     cat_menu::checkbox("Anti autobalance", &config.misc.automation.anti_autobalance);
     cat_menu::checkbox("Anti MOTD", &config.misc.automation.anti_motd);
+    cat_menu::checkbox("Don't close MOTD during warmup", &config.misc.automation.anti_motd_dont_close_during_warmup);
     cat_menu::checkbox("Auto report", &config.misc.automation.auto_report);
     cat_menu::checkbox("Auto vote map", &config.misc.automation.auto_vote_map);
     cat_menu::slider_int("Vote option", &config.misc.automation.auto_vote_map_option, 0, 2);
