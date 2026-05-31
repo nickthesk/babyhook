@@ -85,7 +85,7 @@ void choose_best(goal_candidate& best, const goal_candidate& candidate)
     return;
   }
 
-  if (candidate.score > best.score)
+  if (!best.destination_area.valid() || candidate.score > best.score)
   {
     best = candidate;
   }
@@ -1330,12 +1330,12 @@ navbot_goal_state navbot_goals::select_goal(const navbot_mesh& mesh, Player* loc
     choose_best(best, choose_enemy_goal(mesh, localplayer, current_time));
   }
 
-  if (best.score < 0.0f)
+  if (!best.destination_area.valid())
   {
     choose_best(best, choose_roam_goal(mesh, localplayer, current_time));
   }
 
-  if (best.score >= 0.0f && best.destination_area.valid())
+  if (best.destination_area.valid())
   {
     state.valid = true;
     state.score = best.score;

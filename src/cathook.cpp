@@ -353,7 +353,7 @@ constexpr long attach_ready_delay_max_seconds = 300;
 
 constexpr std::string_view steamclient_module = "steamclient.so";
 
-constexpr std::array<const char*, 16> game_events = {
+constexpr std::array<const char*, 24> game_events = {
   "client_beginconnect",
   "client_connected",
   "client_disconnect",
@@ -370,6 +370,14 @@ constexpr std::array<const char*, 16> game_events = {
   "item_pickup",
   "revive_player_notify",
   "localplayer_respawn",
+  "teamplay_point_captured",
+  "teamplay_point_unlocked",
+  "teamplay_flag_event",
+  "teamplay_setup_finished",
+  "teamplay_waiting_begins",
+  "teamplay_restart_round",
+  "teamplay_round_win",
+  "vote_maps_changed",
 };
 
 std::string find_loaded_module_path(const char* module_name, bool allow_prefix_match = false)
