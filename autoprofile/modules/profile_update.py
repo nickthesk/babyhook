@@ -30,6 +30,9 @@ class profile_update_settings:
     max_login_retries: int = 3
     login_timeout_seconds: int = 45
     request_timeout_seconds: int = 15
+    profile_verification_attempts: int = 2
+    profile_verification_retry_delay_seconds: int = 1
+    profile_verification_timeout_seconds: int = 5
     loopupdateprofiles: bool = False
     use_rollids: bool = False
     loop_timeout: int = 0
@@ -63,6 +66,9 @@ def settings_from_dict(raw_settings):
     settings.max_login_retries = max(1, min(10, settings.max_login_retries))
     settings.login_timeout_seconds = max(5, min(300, settings.login_timeout_seconds))
     settings.request_timeout_seconds = max(5, min(120, settings.request_timeout_seconds))
+    settings.profile_verification_attempts = max(1, min(5, settings.profile_verification_attempts))
+    settings.profile_verification_retry_delay_seconds = max(0, min(10, settings.profile_verification_retry_delay_seconds))
+    settings.profile_verification_timeout_seconds = max(2, min(30, settings.profile_verification_timeout_seconds))
     settings.loop_timeout = max(0, settings.loop_timeout)
     return settings
 
@@ -224,8 +230,9 @@ max_parallel_browser_logins = 2
 default_profile_summary = 'ZESTY JESUS'
 default_custom_url = ''
 default_profile_theme = 'Midnight'
-profile_verification_attempts = 5
-profile_verification_retry_delay_seconds = 2
+profile_verification_attempts = 2
+profile_verification_retry_delay_seconds = 1
+profile_verification_timeout_seconds = 5
 
 random_name_pool = []
 steam_id_names = {}
@@ -289,7 +296,8 @@ def run_profile_update(settings, log_callback, stop_event_passed):
     global profile_image_path, enable_namechange, enable_avatarchange, enable_descriptionchange
     global enable_customurlchange, enable_themechange, enable_nameclear, enable_profile_verification, enable_gatherid32
     global make_commands, random_name, insert_random_chars_enabled, max_parallel_accounts
-    global max_login_retries, login_timeout_seconds, request_timeout_seconds, loopupdateprofiles
+    global max_login_retries, login_timeout_seconds, request_timeout_seconds, profile_verification_attempts
+    global profile_verification_retry_delay_seconds, profile_verification_timeout_seconds, loopupdateprofiles
     global stop_event, safe_print_callback, data_dir, accounts, proxies, cookie_cache_loaded
     global use_rollids, profile_scraper_instance, loop_timeout
 
@@ -316,6 +324,9 @@ def run_profile_update(settings, log_callback, stop_event_passed):
     max_login_retries = settings.max_login_retries
     login_timeout_seconds = settings.login_timeout_seconds
     request_timeout_seconds = settings.request_timeout_seconds
+    profile_verification_attempts = settings.profile_verification_attempts
+    profile_verification_retry_delay_seconds = settings.profile_verification_retry_delay_seconds
+    profile_verification_timeout_seconds = settings.profile_verification_timeout_seconds
     loopupdateprofiles = settings.loopupdateprofiles
     loop_timeout = getattr(settings, 'loop_timeout', 0)
     use_rollids = getattr(settings, 'use_rollids', False)
@@ -443,6 +454,10 @@ def normalize_profile_text(text):
     return ''.join(char for char in normalized if unicodedata.category(char) not in ('Mn', 'Cf'))
 
 
+def profile_text_matches(actual, expected):
+    return normalize_profile_text(str(actual or '')).strip() == normalize_profile_text(str(expected or '')).strip()
+
+
 def sanitize_custom_url(value):
     value = ''.join(char for char in value if char.isalnum() or char in ('_', '-'))
     return value[:32]
@@ -477,12 +492,12 @@ def checks_are_successful(checks):
     if isinstance(edit_verification, dict):
         if edit_verification.get('error'):
             return False
-        for key in ('theme_ok',):
+        for key in ('summary_ok', 'theme_ok'):
             value = edit_verification.get(key)
             if value is False:
                 return False
-        if edit_verification.get('custom_url_ok') is False:
-            pass # Soft fail for custom URL (e.g. limited F2P accounts)
+        if edit_verification.get('custom_url_ok') is False and checks.get('custom_url_change_request') is not False:
+            return False
     return True
 
 
@@ -739,6 +754,22 @@ def save_profile_info(session, summary=None, custom_url=None, nickname=None):
     if 'login' in save_response.url.lower():
         return False, 'profile save redirected to login'
 
+    saved_profile_data, _, verify_error = get_profile_edit_state(session)
+    if verify_error:
+        return False, f'profile save verify failed: {verify_error}'
+
+    mismatches = []
+    if summary is not None and not profile_text_matches(saved_profile_data.get('strSummary'), summary):
+        mismatches.append('description')
+    if nickname is not None and not profile_text_matches(saved_profile_data.get('strPersonaName'), nickname):
+        mismatches.append('nickname')
+    if custom_url is not None and saved_profile_data.get('strCustomURL') != custom_url:
+        current_custom_url = saved_profile_data.get('strCustomURL') or ''
+        mismatches.append(f'custom URL persisted as "{current_custom_url}"')
+
+    if mismatches:
+        return False, 'Steam did not persist ' + ', '.join(mismatches)
+
     return True, None
 
 
@@ -771,15 +802,19 @@ def set_profile_theme(session, theme_id):
     return True, None
 
 
-def verify_edit_state(session, custom_url=None, theme_id=None):
+def verify_edit_state(session, summary=None, custom_url=None, theme_id=None):
     profile_data, _, error = get_profile_edit_state(session)
     verification = {
+        'summary_ok': None,
         'custom_url_ok': None,
         'theme_ok': None
     }
     if error:
         verification['error'] = error
         return verification
+
+    if summary is not None:
+        verification['summary_ok'] = profile_text_matches(profile_data.get('strSummary'), summary)
 
     if custom_url is not None:
         verification['custom_url_ok'] = profile_data.get('strCustomURL') == custom_url
@@ -804,7 +839,7 @@ def verify_profile_page(session, profile_url, nickname=None, summary=None):
 
     for attempt in range(max(1, profile_verification_attempts)):
         try:
-            response = session.get(profile_url, timeout=request_timeout_seconds, allow_redirects=True)
+            response = session.get(profile_url, timeout=min(request_timeout_seconds, profile_verification_timeout_seconds), allow_redirects=True)
         except requests.RequestException as exc:
             verification['error'] = str(exc)
             if attempt < profile_verification_attempts - 1 and not wait_or_stop(profile_verification_retry_delay_seconds):
@@ -1171,17 +1206,18 @@ def process_account_task(index, account_entry, avatar_payload, avatar_allowed, c
                     session,
                     client.steam_id.community_url,
                     nickname=nickname if enable_namechange else None,
-                    summary=profile_summary if enable_descriptionchange else None
+                    summary=None
                 )
                 result['checks']['profile_verification'] = verification
                 edit_verification = verify_edit_state(
                     session,
+                    summary=profile_summary if enable_descriptionchange else None,
                     custom_url=custom_url if enable_customurlchange else None,
                     theme_id=profile_theme if enable_themechange else None
                 )
                 result['checks']['edit_state_verification'] = edit_verification
                 if verification.get('profile_loaded'):
-                    safe_print(f"[#{index + 1}] Verify name={verification.get('name_ok')} desc={verification.get('summary_ok')} url={edit_verification.get('custom_url_ok')} theme={edit_verification.get('theme_ok')} avatar_seen={verification.get('avatar_seen')}")
+                    safe_print(f"[#{index + 1}] Verify name={verification.get('name_ok')} desc={edit_verification.get('summary_ok')} url={edit_verification.get('custom_url_ok')} theme={edit_verification.get('theme_ok')} avatar_seen={verification.get('avatar_seen')}")
                     if edit_verification.get('custom_url_ok') is False:
                         safe_print(f"[#{index + 1}] ⚠ Custom URL couldn't be set! (Likely due to F2P/Limited account restrictions)")
                 else:

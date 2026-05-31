@@ -1289,7 +1289,6 @@ fi
 source_os_release
 install_missing_dependencies
 select_display_backend
-fix_workspace_permissions
 ensure_binaries
 install_runtime
 ensure_node_dependencies

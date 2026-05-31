@@ -42,12 +42,8 @@ matching xpra display first.
 
 `./botpanel/stop` stops the matching headless display unless `CAT_VISIBLE_WINDOWS=1` is set.
 
-`./botpanel/fix_permissions` continuously repairs botpanel, `/opt/cathook`,
-runtime `.so` files including SDL/Steam API libraries, `/opt/steamapps`,
-detected Steam/TF2 paths, and `botpanel/accounts.txt` permissions. It runs once
-immediately and then every second; use `./botpanel/fix_permissions --once` for a
-single pass. It logs each repair pass by default; add `-silent` to suppress
-terminal output.
+`./botpanel/fix_permissions` is disabled and exits without changing ownership or
+permissions.
 
 `./botpanel/fix-oldshi` repairs old botpanel path layouts that created partial
 Steam directories or recursive `/opt/steamapps` symlinks. Stop the panel first;

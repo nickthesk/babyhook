@@ -284,16 +284,8 @@ rebuild_after_update() {
         build_arg="--textmode"
     fi
 
-    if [ ! -x "$build_script" ]; then
-        echo "Fixing executable permission on ./build.sh..."
-        if ! chmod 0755 "$build_script"; then
-            echo "Auto update failed: could not make ./build.sh executable." >&2
-            return 1
-        fi
-    fi
-
     echo "Rebuilding Cat with ./build.sh $build_arg..."
-    CATHOOK_ROOT="$CATHOOK_ROOT" "$build_script" "$build_arg"
+    CATHOOK_ROOT="$CATHOOK_ROOT" bash "$build_script" "$build_arg"
 }
 
 check_for_updates() {
@@ -311,8 +303,6 @@ check_for_updates() {
         echo "Auto update skipped: $SCRIPT_DIR is not a git checkout."
         return 0
     fi
-
-    restore_repo_git_permissions
 
     upstream=$(run_repo_git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
     if [ -z "$upstream" ]; then

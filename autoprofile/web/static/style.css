@@ -1,16 +1,19 @@
 :root {
   color-scheme: dark;
-  --bg: #0f1015;
-  --nav: #14161d;
-  --surface: #1a1c23;
-  --surface_light: #242731;
-  --surface_dark: #0a0b0f;
-  --pink: #7aa2f7;
-  --pink_soft: #2e3440;
-  --text: #c0caf5;
-  --muted: #787c99;
-  --muted_2: #414868;
-  --border_focus: #7aa2f7;
+  --bg: #12101a;
+  --nav: #171522;
+  --surface: #252137;
+  --surface_light: #302b46;
+  --surface_dark: #1b1828;
+  --pink: #ff6f9f;
+  --pink_soft: #6d3f57;
+  --text: #f4edff;
+  --muted: #9b92ba;
+  --muted_2: #47405f;
+  --border_focus: #ff6f9f;
+  --ok: #b7f5cf;
+  --warn: #f4c96a;
+  --bad: #ff7a9e;
 }
 
 * {
@@ -21,9 +24,9 @@
 
 body {
   min-height: 100vh;
-  background: var(--bg);
+  background: radial-gradient(circle at 50% -20%, rgba(255, 111, 159, 0.08), transparent 36%), var(--bg);
   color: var(--text);
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 12px;
   line-height: 1.4;
 }
@@ -47,7 +50,7 @@ button, input, textarea, select {
 
 /* Header */
 .topbar {
-  height: 40px;
+  height: 48px;
   background: var(--nav);
   display: flex;
   justify-content: center;
@@ -69,7 +72,7 @@ button.nav_button {
   color: var(--muted);
   cursor: pointer;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   border-radius: 0;
 }
 
@@ -89,8 +92,8 @@ button.nav_button.active {
 
 /* Shell & Layout */
 .shell {
-  width: min(800px, calc(100vw - 24px));
-  margin: 20px auto 40px;
+  width: min(760px, calc(100vw - 24px));
+  margin: 26px auto 40px;
 }
 
 /* Hero Section */
@@ -146,8 +149,9 @@ h1 {
 /* Work Area */
 .work_area {
   background: var(--surface);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 14px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.16);
 }
 
 .work_area.center {
@@ -175,7 +179,29 @@ h1 {
 
 .actions {
   display: flex;
+  align-items: center;
   gap: 4px;
+}
+
+.save_status {
+  min-width: 64px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  text-align: right;
+}
+
+.save_status[data-mode="saved"] {
+  color: var(--ok);
+}
+
+.save_status[data-mode="saving"], .save_status[data-mode="dirty"] {
+  color: var(--warn);
+}
+
+.save_status[data-mode="error"] {
+  color: var(--bad);
 }
 
 /* Buttons */
@@ -205,11 +231,11 @@ button:not(.nav_button):disabled {
 
 .primary {
   background: var(--pink);
-  color: var(--bg);
+  color: #191221;
 }
 
 .primary:hover {
-  background: #9ab8fa;
+  background: #ff8ab2;
 }
 
 .ghost {
@@ -263,7 +289,7 @@ textarea {
   max-height: 200px;
   resize: none;
   overflow-y: auto;
-  font-family: Consolas, monospace;
+  font-family: 'JetBrains Mono', Consolas, monospace;
 }
 
 /* Select */
@@ -354,7 +380,7 @@ input[type="checkbox"] {
 input[type="checkbox"]:checked {
   background-color: var(--pink);
   border-color: var(--pink);
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f1015' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='20 6 9 17 4 12'%3e%3c/polyline%3e%3c/svg%3e");
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23191221' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='20 6 9 17 4 12'%3e%3c/polyline%3e%3c/svg%3e");
   background-size: 10px 10px;
   background-position: center;
   background-repeat: no-repeat;
@@ -401,7 +427,7 @@ input[type="checkbox"]:hover {
   background: var(--surface_dark);
   padding: 6px;
   color: var(--text);
-  font-family: Consolas, monospace;
+  font-family: 'JetBrains Mono', Consolas, monospace;
   font-size: 10px;
   border: none;
 }

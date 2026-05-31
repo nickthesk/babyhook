@@ -6,9 +6,9 @@
   <title>autoprofile</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
   <header class="topbar">
@@ -35,6 +35,7 @@
             <p>Names, avatars, descriptions, custom URLs, themes, and SteamID output.</p>
           </div>
           <div class="actions">
+            <span id="save_status" class="save_status" data-mode="">loading...</span>
             <button id="save_button" class="ghost"><i class="fa-solid fa-floppy-disk"></i> save</button>
             <button id="stop_button" class="ghost danger"><i class="fa-solid fa-stop"></i> stop</button>
             <button id="start_button" class="primary"><i class="fa-solid fa-play"></i> start</button>
@@ -57,7 +58,7 @@
             <h3>Profile Values</h3>
             <label class="field">Nickname <input id="default_nickname" type="text"></label>
             <label class="field">Description <input id="default_profile_summary" type="text"></label>
-            <label class="field">Custom URL <input id="default_custom_url" type="text" placeholder="empty = username"></label>
+            <label class="field">Custom URL <input id="default_custom_url" type="text" maxlength="32" pattern="[A-Za-z0-9_-]*" placeholder="letters, numbers, _ or -"></label>
             <label class="field">Theme
               <select id="default_profile_theme">
                 <option value="">Default</option>
@@ -168,6 +169,6 @@
       </section>
     </section>
   </main>
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>

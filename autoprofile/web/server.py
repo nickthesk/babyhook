@@ -68,10 +68,8 @@ def make_settings(raw_settings):
 
 def write_runtime_files(request):
     paths.write_text_file('accounts.txt', request.accounts.strip() + '\n' if request.accounts.strip() else '')
-    if request.proxies.strip():
-        paths.write_text_file('proxies.html', request.proxies.strip() + '\n')
-    if request.rollids.strip():
-        paths.write_text_file('rollids.txt', request.rollids.strip() + '\n')
+    paths.write_text_file('proxies.html', request.proxies.strip() + '\n' if request.proxies.strip() else '')
+    paths.write_text_file('rollids.txt', request.rollids.strip() + '\n' if request.rollids.strip() else '')
     paths.write_json_file('settings.json', request.settings)
 
 

@@ -26,8 +26,20 @@ const switches = [
   'loopupdateprofiles'
 ];
 
+let config_loaded = false;
+let save_timer = null;
+let save_in_flight = false;
+let save_pending = false;
+
 function element(id) {
   return document.getElementById(id);
+}
+
+function set_save_status(text, mode) {
+  const status = element('save_status');
+  if (!status) return;
+  status.textContent = text;
+  status.dataset.mode = mode || '';
 }
 
 function autoResizeTextarea(textarea) {
@@ -75,6 +87,15 @@ function apply_settings(settings) {
   }
 }
 
+function collect_payload() {
+  return {
+    accounts: element('accounts').value,
+    proxies: element('proxies').value,
+    rollids: element('rollids') ? element('rollids').value : '',
+    settings: collect_settings()
+  };
+}
+
 async function load_config() {
   console.info('[INFO] load_config: Loading config from backend...');
   const config = await request_json('/api/config');
@@ -86,18 +107,15 @@ async function load_config() {
   element('goodaccounts_output').textContent = config.outputs?.goodaccounts || '';
   
   document.querySelectorAll('textarea').forEach(autoResizeTextarea);
+  config_loaded = true;
+  set_save_status('saved', 'saved');
   
   console.info('[INFO] load_config: Config applied to UI successfully.');
 }
 
 async function start_job() {
   console.info('[INFO] start_job: Preparing to start a new profile update job...');
-  const payload = {
-    accounts: element('accounts').value,
-    proxies: element('proxies').value,
-    rollids: element('rollids') ? element('rollids').value : '',
-    settings: collect_settings()
-  };
+  const payload = collect_payload();
   await request_json('/api/profile-update/start', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -107,31 +125,44 @@ async function start_job() {
   await poll_status();
 }
 
-async function save_files() {
-  console.info('[INFO] save_files: Preparing to save current config to backend...');
-  const payload = {
-    accounts: element('accounts').value,
-    proxies: element('proxies').value,
-    rollids: element('rollids') ? element('rollids').value : '',
-    settings: collect_settings()
-  };
-  await request_json('/api/config', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  });
-  console.info('[INFO] save_files: Backend save successful. Reloading config...');
-  await load_config();
-  console.info('[INFO] save_files: Process complete.');
-
-  const saveBtn = element('save_button');
-  const originalHtml = saveBtn.innerHTML;
-  saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> saved!';
-  saveBtn.style.color = '#a6da95';
-  setTimeout(() => {
-    saveBtn.innerHTML = originalHtml;
-    saveBtn.style.color = '';
-  }, 2000);
+async function save_files(options = {}) {
+  if (save_in_flight) {
+    save_pending = true;
+    return;
+  }
+  save_in_flight = true;
+  save_pending = false;
+  if (!options.quiet) {
+    console.info('[INFO] save_files: Preparing to save current config to backend...');
+  }
+  set_save_status('saving...', 'saving');
+  const payload = collect_payload();
+  try {
+    await request_json('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    set_save_status('saved', 'saved');
+    const save_button = element('save_button');
+    const original_html = save_button.innerHTML;
+    if (!options.quiet) {
+      save_button.innerHTML = '<i class="fa-solid fa-check"></i> saved';
+      save_button.style.color = '#b7f5cf';
+      setTimeout(() => {
+        save_button.innerHTML = original_html;
+        save_button.style.color = '';
+      }, 1500);
+    }
+  } catch (error) {
+    set_save_status('save failed', 'error');
+    throw error;
+  } finally {
+    save_in_flight = false;
+    if (save_pending) {
+      save_files({quiet: true}).catch(error => console.error('[ERROR] queued save failed:', error));
+    }
+  }
 }
 
 async function stop_job() {
@@ -146,6 +177,7 @@ async function start_checker_job() {
   const payload = {
     accounts: element('accounts').value,
     proxies: element('proxies').value,
+    rollids: element('rollids') ? element('rollids').value : '',
     settings: collect_settings()
   };
   await request_json('/api/account-check/start', {
@@ -244,6 +276,39 @@ function setup_textareas() {
   });
 }
 
+function schedule_save() {
+  if (!config_loaded) return;
+  set_save_status('unsaved', 'dirty');
+  clearTimeout(save_timer);
+  save_timer = setTimeout(() => {
+    save_files({quiet: true}).catch(error => console.error('[ERROR] autosave failed:', error));
+  }, 500);
+}
+
+function sanitize_custom_url(value) {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32);
+}
+
+function setup_custom_url_guard() {
+  const input = element('default_custom_url');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const cleaned = sanitize_custom_url(input.value);
+    if (input.value !== cleaned) {
+      input.value = cleaned;
+    }
+  });
+}
+
+function setup_autosave() {
+  const ids = ['accounts', 'proxies', 'rollids', ...fields, ...switches];
+  for (const id of ids) {
+    const input = element(id);
+    if (!input) continue;
+    input.addEventListener(input.type === 'checkbox' || input.tagName === 'SELECT' ? 'change' : 'input', schedule_save);
+  }
+}
+
 console.info('[INFO] Application initializing...');
 element('start_button').addEventListener('click', () => {
   console.debug('[DEBUG] Start button clicked');
@@ -282,6 +347,8 @@ element('save_button').addEventListener('click', () => {
 });
 setup_tabs();
 setup_textareas();
+setup_custom_url_guard();
+setup_autosave();
 load_config().then(() => {
   console.info('[INFO] Initial config loaded. Starting status poller...');
   return poll_status();

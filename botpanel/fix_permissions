@@ -16,8 +16,7 @@ usage() {
     cat <<'EOF'
 Usage: ./botpanel/fix_permissions [--once] [--interval SECONDS] [-silent]
 
-Continuously repairs ownership and permissions for botpanel runtime paths.
-The first pass runs immediately; by default the script repeats every second.
+Permission repair is disabled.
 
 Environment:
   CATHOOK_ROOT=/opt/cathook
@@ -462,26 +461,5 @@ if [ "$(uname -s)" != "Linux" ]; then
     exit 1
 fi
 
-case "$interval" in
-    "" | *[!0-9]*)
-        echo "Interval must be a positive integer number of seconds." >&2
-        exit 1
-        ;;
-    0)
-        echo "Interval must be greater than zero." >&2
-        exit 1
-        ;;
-esac
-
-resolve_target_identity
-log "target owner: $target_user ($target_uid:$target_gid), interval=${interval}s"
-
-while :; do
-    if ! repair_once; then
-        log "repair pass failed; retrying in ${interval}s"
-    fi
-    if [ "$run_once" = "1" ]; then
-        exit 0
-    fi
-    sleep "$interval"
-done
+log "permission repair disabled"
+exit 0

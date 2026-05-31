@@ -131,8 +131,6 @@ restore_workspace_permissions() {
     done
 }
 
-trap restore_workspace_permissions EXIT
-
 restore_git_permissions() {
     if [ "$(id -u)" -ne 0 ] || [ -z "${SUDO_UID:-}" ] || [ -z "${SUDO_GID:-}" ]; then
         return
@@ -175,8 +173,6 @@ update_project_if_needed() {
         echo "Skipping update check: $project_root is not a git repository."
         return
     fi
-
-    restore_git_permissions
 
     local upstream_branch
     upstream_branch="$(run_git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
@@ -405,7 +401,6 @@ install_outputs() {
             echo "cat-steamtxtmode build/install failed; bots will run without the Steam shim." >&2
     fi
     copy_assets "$install_assets_dir"
-    fix_install_permissions
     echo "Installed Cat runtime to $install_root"
 }
 
@@ -460,5 +455,3 @@ clear_execstack_if_needed "$project_root/bin/libcathooktextmode.so"
 if [ "$install_enabled" = "1" ]; then
     install_outputs "$selected_mode"
 fi
-
-fix_runtime_permissions_once

@@ -252,7 +252,6 @@ update_repo() {
     fi
 
     if run_repo_git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        restore_repo_git_permissions
         old_script="$(run_repo_git rev-parse HEAD:botpanel/update 2>/dev/null || true)"
         update_origin_url
         discard_local_tracked_changes
@@ -425,7 +424,6 @@ build_web_panel
 prepare_botpanel_state
 prepare_firejail
 update_navmeshes
-fix_runtime_permissions_once
 
 echo
 echo "Done. Start the panel with ./botpanel/start"
