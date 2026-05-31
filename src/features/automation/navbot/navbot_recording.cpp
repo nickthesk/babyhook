@@ -347,7 +347,10 @@ void server_nav_recorder::update(const std::string& map_name, const server_recor
       return;
     }
 
-    status_.message = status_.server_module_found ? "server signature missing" : "server.so not loaded";
+    if (status_.message.empty())
+    {
+      status_.message = status_.server_module_found ? "server signature missing" : "server.so not loaded";
+    }
     return;
   }
 

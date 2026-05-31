@@ -301,6 +301,10 @@ void draw_debug_overlay_imgui(ImDrawList* draw_list, const navbot_debug_state& d
   lines.emplace_back(std::string("mesh: ") + (debug_state.mesh_ready ? "ready" : "missing"));
   lines.emplace_back(std::string("goal: ") + (debug_state.goal_valid ? goal_type_name(debug_state.current_goal) : "none"));
   lines.emplace_back(std::string("path: ") + path_status_name(debug_state.current_path_status));
+  if (!debug_state.path_request_message.empty())
+  {
+    lines.emplace_back(std::string("path_request: ") + debug_state.path_request_message);
+  }
   lines.emplace_back(std::string("active_path: ") + (debug_state.has_active_path ? "yes" : "no"));
   lines.emplace_back(std::string("crumbs: ") + std::to_string(debug_state.active_crumb_count));
   lines.emplace_back(std::string("last_fail: ") + failure_reason_name(debug_state.last_failure));

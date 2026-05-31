@@ -246,6 +246,7 @@ struct navbot_debug_state
   uint32_t active_crumb_count = 0;
   std::string map_name{};
   std::string nav_file_path{};
+  std::string path_request_message{};
   std::string server_recording_path{};
   std::string server_recording_message{};
 };

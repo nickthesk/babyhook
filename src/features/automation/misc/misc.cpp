@@ -754,6 +754,37 @@ bool cancel_match_queue(void* party_client, unsigned int queue_mode)
   return true;
 }
 
+bool cancel_standby_queue(void* party_client)
+{
+  initialize_party_client_api();
+  if (party_client == nullptr || g_party_client_api.request_leave_standby == nullptr)
+  {
+    return false;
+  }
+
+  g_party_client_api.request_leave_standby(party_client);
+  return true;
+}
+
+bool cancel_active_queues(void* party_client, unsigned int queue_mode, bool& in_match_queue, bool& in_standby)
+{
+  bool cancelled = false;
+
+  if (in_match_queue && cancel_match_queue(party_client, queue_mode))
+  {
+    in_match_queue = false;
+    cancelled = true;
+  }
+
+  if (in_standby && cancel_standby_queue(party_client))
+  {
+    in_standby = false;
+    cancelled = true;
+  }
+
+  return cancelled;
+}
+
 Entity* get_player_resource_entity()
 {
   if (entity_list == nullptr)
@@ -855,8 +886,8 @@ bool should_trigger_player_threshold_requeue(int human_players)
 {
   const int players_lte = config.misc.automation.rq_if_players_lte;
   const int players_gte = config.misc.automation.rq_if_players_gte;
-  const bool hit_lte = players_lte > 0 && human_players <= players_lte;
-  const bool hit_gte = players_gte > 0 && human_players >= players_gte;
+  const bool hit_lte = players_lte > 0 && human_players < players_lte;
+  const bool hit_gte = players_gte > 0 && human_players > players_gte;
   return hit_lte || hit_gte;
 }
 
@@ -1132,7 +1163,6 @@ void automation_controller::on_create_move(user_cmd* user_cmd)
   run_noisemaker_spam();
   run_voice_command_spam();
   run_micspam();
-  autoitem::on_create_move();
   run_mvm_actions();
 
   auto* localplayer = entity_list != nullptr ? entity_list->get_localplayer() : nullptr;
@@ -1169,6 +1199,7 @@ void automation_controller::on_frame_stage_notify()
   run_auto_report();
   run_ping_reducer();
   run_mvm_actions();
+  autoitem::on_tick();
   run_queueing();
 }
 
@@ -1182,6 +1213,7 @@ void automation_controller::on_paint()
     return;
   }
 
+  autoitem::on_tick();
   run_queueing();
 }
 
@@ -1193,6 +1225,7 @@ void automation_controller::on_menu_tick()
     return;
   }
 
+  autoitem::on_tick();
   run_queueing();
 #endif
 }
@@ -2253,10 +2286,10 @@ void automation_controller::run_queueing()
 
   bool in_match_queue = g_party_client_api.is_in_queue_for_match_group != nullptr &&
                         g_party_client_api.is_in_queue_for_match_group(party_client, queue_mode);
-  const bool in_standby = is_in_standby_queue(party_client);
+  bool in_standby = is_in_standby_queue(party_client);
   cat_ipc::client::set_in_casual_queue(
     (in_match_queue || in_standby) && queue_mode == casual_match_group_default);
-  if (!in_match_queue)
+  if (!in_match_queue && !in_standby)
   {
     cancel_queue_requested = false;
   }
@@ -2275,24 +2308,24 @@ void automation_controller::run_queueing()
     const bool loading_requeue_conditions_met =
         loading_player_threshold_requeue || loading_ipc_bot_threshold_requeue || loading_no_navmesh_requeue;
 
-    if (in_match_queue && !cancel_queue_requested && !loading_requeue_conditions_met)
+    if ((in_match_queue || in_standby) && !cancel_queue_requested && !loading_requeue_conditions_met)
     {
       log_queue_debug(
-        "loading screen active and rq_if requirements not met, leaving queued match group %u humans=%d ipc_excess=%d no_navmesh=%d\n",
+        "loading screen active and rq_if requirements not met, leaving queues match_group=%u standby=%d humans=%d ipc_excess=%d no_navmesh=%d\n",
         queue_mode,
+        in_standby ? 1 : 0,
         loading_human_players,
         loading_ipc_bot_threshold_requeue ? 1 : 0,
         loading_no_navmesh_requeue ? 1 : 0);
-      if (cancel_match_queue(party_client, queue_mode))
+      if (cancel_active_queues(party_client, queue_mode, in_match_queue, in_standby))
       {
         cancel_queue_requested = true;
-        in_match_queue = false;
         queued_from_player_threshold = false;
         next_queue_action_time_ = global_vars->realtime + auto_queue_interval;
       }
       else if (emit_debug_log)
       {
-        log_queue_debug("loading screen active but request_leave_for_match is null\n");
+        log_queue_debug("loading screen active but no leave queue request is available\n");
       }
     }
 
@@ -2398,17 +2431,18 @@ void automation_controller::run_queueing()
       was_disconnected ? 1 : 0);
   }
 
-  if (in_match_queue && in_game && !threshold_requeue && !cancel_queue_requested)
+  if ((in_match_queue || in_standby) && in_game && !threshold_requeue && !cancel_queue_requested)
   {
-    if (cancel_match_queue(party_client, queue_mode))
+    const bool had_standby = in_standby;
+    if (cancel_active_queues(party_client, queue_mode, in_match_queue, in_standby))
     {
-      log_queue_debug("rq_if requirements not met, leaving queued match group %u\n", queue_mode);
+      log_queue_debug("rq_if requirements not met, leaving queues match_group=%u standby=%d\n", queue_mode, had_standby ? 1 : 0);
       cancel_queue_requested = true;
       next_queue_action_time_ = global_vars->realtime + auto_queue_interval;
     }
     else if (emit_debug_log)
     {
-      log_queue_debug("rq_if requirements not met but request_leave_for_match is null\n");
+      log_queue_debug("rq_if requirements not met but no leave queue request is available\n");
     }
     queued_from_player_threshold = false;
     return;
@@ -2416,7 +2450,7 @@ void automation_controller::run_queueing()
 
   if (threshold_requeue)
   {
-    if (!in_match_queue && global_vars->realtime >= next_queue_action_time_)
+    if (!in_match_queue && !in_standby && global_vars->realtime >= next_queue_action_time_)
     {
       log_queue_debug(
         "rq_if hit (%d humans, ipc_excess=%d, no_navmesh=%d), requesting rolling queue for match group %u\n",
@@ -2458,10 +2492,9 @@ void automation_controller::run_queueing()
 
   if (in_standby)
   {
-    if (g_party_client_api.request_leave_standby != nullptr)
+    if (cancel_standby_queue(party_client))
     {
       log_queue_debug("leaving standby queue\n");
-      g_party_client_api.request_leave_standby(party_client);
     }
     else
     {

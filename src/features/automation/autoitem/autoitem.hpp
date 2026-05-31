@@ -18,7 +18,7 @@ namespace autoitem
 {
 
 void initialize();
-void on_create_move();
+void on_tick();
 
 bool rent_item(int item_def_id);
 bool craft_items(const std::vector<int>& item_def_ids);

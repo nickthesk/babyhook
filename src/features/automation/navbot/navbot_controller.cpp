@@ -1618,24 +1618,29 @@ void navbot_controller::poll_path_results()
 
 void navbot_controller::request_path_if_needed()
 {
+  debug_state_.path_request_message = "checking";
   if (!active_goal_.valid || !mesh_.is_ready())
   {
+    debug_state_.path_request_message = !active_goal_.valid ? "no goal" : "mesh missing";
     return;
   }
 
   auto* localplayer = entity_list->get_localplayer();
   if (localplayer == nullptr)
   {
+    debug_state_.path_request_message = "no localplayer";
     return;
   }
   auto current_time = global_vars != nullptr ? global_vars->curtime : 0.0f;
 
   if (pending_job_.generation_id == current_generation_id_ || follower_.generation_id() == current_generation_id_)
   {
+    debug_state_.path_request_message = pending_job_.generation_id == current_generation_id_ ? "pending" : "active";
     return;
   }
   if (current_time < next_path_request_time_)
   {
+    debug_state_.path_request_message = "waiting retry";
     return;
   }
 
@@ -1643,6 +1648,7 @@ void navbot_controller::request_path_if_needed()
   auto goal_area = active_goal_.goal.destination_area;
   if (!start_area.valid() || !goal_area.valid())
   {
+    debug_state_.path_request_message = !start_area.valid() ? "no start area" : "no goal area";
     return;
   }
 
@@ -1665,6 +1671,7 @@ void navbot_controller::request_path_if_needed()
   request.require_exact_goal_area = active_goal_.goal.type == goal_type::push_payload;
 
   pending_job_ = jobs_.submit_path_request(request);
+  debug_state_.path_request_message = "submitted";
   next_path_request_time_ = current_time;
 }
 

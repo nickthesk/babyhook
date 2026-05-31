@@ -895,13 +895,7 @@ inline bool multi_select_combo(const char* label, uint32_t* value_mask, const ch
 
   window->DrawList->AddRect(bb.Min, bb.Max, ImGui::GetColorU32(border_color), 0.0f, 0, 1.0f);
 
-  std::string clipped_preview = preview;
-  while (!clipped_preview.empty() && ImGui::CalcTextSize(clipped_preview.c_str()).x > bb.GetWidth() - 38.0f) {
-    clipped_preview.pop_back();
-  }
-  if (clipped_preview.size() < preview.size()) {
-    clipped_preview += "...";
-  }
+  const std::string clipped_preview = ellipsize_text(preview.c_str(), ImMax(1.0f, bb.GetWidth() - 38.0f));
   window->DrawList->AddText(font_regular(), font_regular()->LegacySize, ImVec2(bb.Min.x + 4.0f, bb.GetCenter().y - (ImGui::GetTextLineHeight() * 0.5f)), ImGui::GetColorU32(k_text), clipped_preview.c_str());
 
   const ImVec2 arrow_center(bb.Max.x - 10.0f, bb.GetCenter().y + 1.0f);
@@ -2027,8 +2021,8 @@ static void draw_cat_bot_content() {
     cat_menu::checkbox("Requeue on kick", &config.misc.automation.requeue_on_kick);
     cat_menu::checkbox("Auto casual join", &config.misc.automation.auto_casual_join);
     cat_menu::combo("Queue mode", &config.misc.automation.auto_queue_mode, queue_mode_items, IM_ARRAYSIZE(queue_mode_items));
-    cat_menu::slider_int("RQ if players <=", &config.misc.automation.rq_if_players_lte, 0, 32);
-    cat_menu::slider_int("RQ if players >=", &config.misc.automation.rq_if_players_gte, 0, 32);
+    cat_menu::slider_int("RQ if players <", &config.misc.automation.rq_if_players_lte, 0, 32);
+    cat_menu::slider_int("RQ if players >", &config.misc.automation.rq_if_players_gte, 0, 32);
     cat_menu::slider_int("RQ if IPC bots >", &config.misc.automation.rq_if_ipc_bots_gt, 0, 32);
     cat_menu::checkbox("RQ if no navmesh", &config.misc.automation.rq_if_no_navmesh);
     cat_menu::checkbox("RQ ignore friends", &config.misc.automation.rq_ignore_friends);
@@ -2135,8 +2129,8 @@ static void draw_queue_content() {
     cat_menu::checkbox("Requeue on kick", &config.misc.automation.requeue_on_kick);
     cat_menu::checkbox("Auto casual join", &config.misc.automation.auto_casual_join);
     cat_menu::combo("Queue mode", &config.misc.automation.auto_queue_mode, queue_mode_items, IM_ARRAYSIZE(queue_mode_items));
-    cat_menu::slider_int("RQ if players <=", &config.misc.automation.rq_if_players_lte, 0, 32);
-    cat_menu::slider_int("RQ if players >=", &config.misc.automation.rq_if_players_gte, 0, 32);
+    cat_menu::slider_int("RQ if players <", &config.misc.automation.rq_if_players_lte, 0, 32);
+    cat_menu::slider_int("RQ if players >", &config.misc.automation.rq_if_players_gte, 0, 32);
     cat_menu::slider_int("RQ if IPC bots >", &config.misc.automation.rq_if_ipc_bots_gt, 0, 32);
     cat_menu::checkbox("RQ if no navmesh", &config.misc.automation.rq_if_no_navmesh);
     cat_menu::checkbox("RQ ignore friends", &config.misc.automation.rq_ignore_friends);
@@ -2762,6 +2756,7 @@ inline bool begin_chrome_window(window_id id, const ImVec2& default_size, const 
   if (!state.open || state.minimized) return false;
 
   ImGui::SetNextWindowSize(default_size, ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSizeConstraints(default_size, ImVec2(FLT_MAX, FLT_MAX));
   ImGui::SetNextWindowPos(default_pos, ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowBgAlpha(0.0f);
   if (state.focus_request) {
