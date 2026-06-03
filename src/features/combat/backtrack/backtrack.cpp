@@ -38,6 +38,7 @@ constexpr int flow_incoming = 1;
 constexpr int net_channel_send_datagram_index = 44;
 constexpr float fallback_max_unlag_seconds = 1.0f;
 constexpr float record_hitbox_expansion = 1.25f;
+constexpr float lag_compensation_delta_limit = 0.2f;
 
 struct incoming_sequence {
   int reliable_state = 0;
@@ -210,7 +211,7 @@ send_datagram_fn g_send_datagram_original = nullptr;
   }
 
   const float delta = record_delta(timing, record);
-  if (!std::isfinite(delta) || delta > std::max(timing.window, tick_interval())) {
+  if (!std::isfinite(delta) || delta > std::max(lag_compensation_delta_limit, tick_interval())) {
     return false;
   }
 

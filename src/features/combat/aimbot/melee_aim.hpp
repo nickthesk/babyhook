@@ -17,7 +17,6 @@ V  o o  V  file: src/features/combat/aimbot/melee_aim.hpp
 
 #include "aim_utils.hpp"
 #include "core/entity_cache.hpp"
-#include "features/combat/backtrack/backtrack.hpp"
 #include "features/movement/local_prediction/move_sim.hpp"
 
 namespace melee_aim_detail {
@@ -262,7 +261,6 @@ struct swing_sample {
   Vec3 mins{};
   Vec3 maxs{};
   float at_time = 0.0f;
-  int tick_count = 0;
 };
 
 struct swing_sample_set {
@@ -286,7 +284,6 @@ inline void add_swing_sample(swing_sample_set* out,
   sample.mins = mins;
   sample.maxs = maxs;
   sample.at_time = at_time;
-  sample.tick_count = local_prediction_time_to_ticks(target->get_simulation_time() + at_time + backtrack::interpolation_time());
 }
 
 inline swing_sample_set build_target_samples_simple(Player* target, float swing_time) {
@@ -327,7 +324,6 @@ inline std::vector<swing_sample> build_target_samples(Player* target, float swin
     sample.mins = target->get_player_mins(target->is_ducking());
     sample.maxs = target->get_player_maxs(target->is_ducking());
     sample.at_time = 0.0f;
-    sample.tick_count = local_prediction_time_to_ticks(target->get_simulation_time() + backtrack::interpolation_time());
     out.push_back(sample);
     return out;
   }
@@ -347,7 +343,6 @@ inline std::vector<swing_sample> build_target_samples(Player* target, float swin
   sample.mins = mins;
   sample.maxs = maxs;
   sample.at_time = path.start_time + (static_cast<float>(last) * path.time_step);
-  sample.tick_count = local_prediction_time_to_ticks(target->get_simulation_time() + sample.at_time + backtrack::interpolation_time());
   out.push_back(sample);
 
   return out;
@@ -580,9 +575,6 @@ inline aimbot_candidate melee_aim_find_simple_candidate(Player* localplayer,
   candidate.melee_swing_start = swing_start;
   candidate.melee_target_origin = best_sample->origin;
   candidate.simulation_time = player->get_simulation_time();
-  candidate.tick_count = best_sample->tick_count > 0
-    ? best_sample->tick_count
-    : local_prediction_time_to_ticks(candidate.simulation_time + backtrack::interpolation_time());
   return candidate;
 }
 
@@ -620,7 +612,6 @@ inline aimbot_candidate melee_aim_find_candidate(Player* localplayer,
     fallback.mins = player->get_player_mins(player->is_ducking());
     fallback.maxs = player->get_player_maxs(player->is_ducking());
     fallback.at_time = 0.0f;
-    fallback.tick_count = local_prediction_time_to_ticks(player->get_simulation_time() + backtrack::interpolation_time());
     samples.push_back(fallback);
   }
 
@@ -700,9 +691,6 @@ inline aimbot_candidate melee_aim_find_candidate(Player* localplayer,
   candidate.melee_swing_start = swing_start;
   candidate.melee_target_origin = best_sample->origin;
   candidate.simulation_time = player->get_simulation_time();
-  candidate.tick_count = best_sample->tick_count > 0
-    ? best_sample->tick_count
-    : local_prediction_time_to_ticks(candidate.simulation_time + backtrack::interpolation_time());
   return candidate;
 }
 

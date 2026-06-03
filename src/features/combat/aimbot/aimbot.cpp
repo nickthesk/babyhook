@@ -482,10 +482,8 @@ void apply_fire_state(aimbot_run_context& ctx) {
     ctx.cmd->view_angles = ctx.target_angles;
   }
 
-  if (firing && ctx.target.player != nullptr && (ctx.hitscan || ctx.melee)) {
-    ctx.cmd->tick_count = ctx.target.tick_count > 0
-      ? ctx.target.tick_count
-      : local_prediction_time_to_ticks(ctx.target.player->get_simulation_time() + backtrack::interpolation_time());
+  if (firing && ctx.target.player != nullptr && ctx.hitscan && ctx.target.backtrack && ctx.target.tick_count > 0) {
+    ctx.cmd->tick_count = ctx.target.tick_count;
   }
 
   ctx.psilent = config.aimbot.aim_mode == Aim::AimMode::PSILENT && firing;

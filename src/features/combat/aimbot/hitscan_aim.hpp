@@ -909,7 +909,7 @@ inline aimbot_candidate hitscan_aim_make_candidate(Player* localplayer,
   candidate.distance = distance_3d(localplayer->get_origin(), player->get_origin());
   candidate.health = player->get_health();
   candidate.simulation_time = player->get_simulation_time();
-  candidate.tick_count = local_prediction_time_to_ticks(candidate.simulation_time + backtrack::interpolation_time());
+  candidate.tick_count = 0;
   candidate.command_angles = hitscan_aim_command_angles(localplayer, point.angles);
   candidate.visible = true;
   return candidate;

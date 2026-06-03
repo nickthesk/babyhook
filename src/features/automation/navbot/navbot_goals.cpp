@@ -382,8 +382,6 @@ goal_candidate choose_control_point_goal(const navbot_mesh& mesh, Player* localp
 
   constexpr float cap_radius = 150.0f;
   constexpr float cap_radius_sq = cap_radius * cap_radius;
-  constexpr float threat_radius = 750.0f;
-  constexpr float threat_radius_sq = threat_radius * threat_radius;
   constexpr float sticky_radius_sq = 220.0f * 220.0f;
 
   for (auto* entity : entity_cache[class_id::OBJECTIVE_RESOURCE])
@@ -409,29 +407,13 @@ goal_candidate choose_control_point_goal(const navbot_mesh& mesh, Player* localp
       }
 
       auto owning_team = objective->get_owning_team(point_index);
-      auto we_own = (owning_team == local_team_value);
       auto can_cap = objective->can_team_capture(point_index, localplayer->get_team());
-      auto origin = objective->get_origin(point_index);
-
-      auto defend_mode = false;
-      if (we_own)
-      {
-        for (const auto& enemy_origin : enemy_origins)
-        {
-          if (distance_squared_2d(enemy_origin, origin) <= threat_radius_sq)
-          {
-            defend_mode = true;
-            break;
-          }
-        }
-      }
-
-      auto attack_mode = !we_own && can_cap;
-      if (!attack_mode && !defend_mode)
+      if (owning_team == local_team_value || !can_cap)
       {
         continue;
       }
 
+      auto origin = objective->get_origin(point_index);
       auto area_id = mesh.find_closest_area(origin);
       if (!area_id.valid())
       {
@@ -439,7 +421,7 @@ goal_candidate choose_control_point_goal(const navbot_mesh& mesh, Player* localp
       }
 
       auto distance_2d = std::sqrt(distance_squared_2d(local_origin, origin));
-      auto score = attack_mode ? 95.0f : 78.0f;
+      auto score = 95.0f;
       score -= std::min(distance_2d, 2500.0f) * 0.015f;
 
       auto teammates_in_cap = 0;
@@ -461,20 +443,13 @@ goal_candidate choose_control_point_goal(const navbot_mesh& mesh, Player* localp
 
       score += std::min(teammates_in_cap, 4) * 6.0f;
 
-      if (attack_mode)
+      if (enemies_in_cap == 0)
       {
-        if (enemies_in_cap == 0)
-        {
-          score += 12.0f;
-        }
-        if (enemies_in_cap > 0 && teammates_in_cap >= enemies_in_cap)
-        {
-          score += 10.0f;
-        }
+        score += 12.0f;
       }
-      else if (defend_mode)
+      if (enemies_in_cap > 0 && teammates_in_cap >= enemies_in_cap)
       {
-        score += enemies_in_cap > 0 ? 22.0f : 6.0f;
+        score += 10.0f;
       }
 
       if (distance_squared_2d(local_origin, origin) <= sticky_radius_sq)
@@ -506,9 +481,13 @@ goal_candidate choose_control_point_goal(const navbot_mesh& mesh, Player* localp
           continue;
         }
 
-        // Skip fully locked / uncapturable points that neither team can capture
-        if (!objective->can_team_capture(point_index, tf_team::RED) &&
-            !objective->can_team_capture(point_index, tf_team::BLU))
+        if (objective->is_locked(point_index))
+        {
+          continue;
+        }
+
+        if (objective->get_owning_team(point_index) == local_team_value ||
+            !objective->can_team_capture(point_index, localplayer->get_team()))
         {
           continue;
         }
