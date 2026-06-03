@@ -1194,11 +1194,41 @@ configure_steam_txtmode_preload() {
     echo "Steam headless shim enabled: STEAM_LD_PRELOAD=$STEAM_LD_PRELOAD"
 }
 
+run_panel_permission_fix() {
+    local web_panel_scripts_dir="$web_panel_root/scripts"
+    run_as_root chmod 0755 "$web_panel_scripts_dir/ns-inet" "$web_panel_scripts_dir/ns-delete" 2>/dev/null || true
+}
+
+fast_fix_panel_permissions() {
+    local web_panel_scripts_dir="$web_panel_root/scripts"
+    chmod 0755 "$web_panel_scripts_dir/ns-inet" "$web_panel_scripts_dir/ns-delete" 2>/dev/null || true
+}
+
+start_panel_permission_loop() {
+    local web_panel_scripts_dir="$web_panel_root/scripts"
+    local fix_interval="${CAT_PERMISSION_FIX_INTERVAL_SECONDS:-30}"
+    local target_uid target_gid
+    target_uid="$(id -u)"
+    target_gid="$(id -g)"
+
+    chmod 0755 "$web_panel_scripts_dir/ns-inet" "$web_panel_scripts_dir/ns-delete" 2>/dev/null || true
+
+    (
+        while :; do
+            sleep "$fix_interval"
+            run_as_root chmod 0755 "$web_panel_scripts_dir/ns-inet" "$web_panel_scripts_dir/ns-delete" 2>/dev/null || true
+            run_as_root chown -h "$target_uid:$target_gid" "$web_panel_scripts_dir/ns-inet" "$web_panel_scripts_dir/ns-delete" 2>/dev/null || true
+        done
+    ) </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+}
+
 start_panel() {
     restart_panel_if_running
 
     cd "$web_panel_root"
     run_as_root rm -f /tmp/cat-webpanel-password
+    run_panel_permission_fix
 
     if [ "$(id -u)" -eq 0 ]; then
         start_detached_panel env \
@@ -1307,5 +1337,6 @@ warn_if_steam_missing
 configure_steam_txtmode_preload
 print_ready
 start_panel
+start_panel_permission_loop
 print_panel_password
 echo "Open a web browser and go to http://127.0.0.1:$port to see your catbot IPC panel web panel."
