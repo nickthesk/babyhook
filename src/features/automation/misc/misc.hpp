@@ -34,7 +34,6 @@ public:
   void on_game_event(GameEvent* event);
 
   [[nodiscard]] bool is_warmup_active() const;
-  [[nodiscard]] bool is_pre_round_active() const;
 
 private:
   void apply_misc_convars();

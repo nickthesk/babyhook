@@ -46,12 +46,8 @@ namespace
 navbot_controller* global_controller = nullptr;
 constexpr float goal_refresh_interval = 1.0f;
 constexpr float goal_retry_interval = 0.2f;
-constexpr float path_retry_interval = 0.4f;
+constexpr float path_retry_interval = 1.0f;
 constexpr float weapon_switch_interval = 0.35f;
-constexpr uint32_t no_path_force_goal_refresh_threshold = 1u;
-constexpr float dead_end_soft_blacklist_cost = 0.0f;
-constexpr float no_path_destination_cooldown = 6.0f;
-constexpr float payload_capture_walk_range = 200.0f;
 constexpr float navbot_throwable_look_suppress_seconds = 0.55f;
 constexpr int team_unassigned = 0;
 constexpr int tf_team_blue_value = 3;
@@ -1174,40 +1170,8 @@ void navbot_controller::clear_runtime_state()
   pending_desired_weapon_slot_ = 0;
   pending_desired_since_ = 0.0f;
   crumb_failure_ = {};
-  consecutive_no_path_count_ = 0;
   suppress_aimbot_for_reload_ = false;
   reset_debug_runtime(debug_state_);
-}
-
-bool navbot_controller::try_payload_capture_walk(Player* localplayer, user_cmd* user_cmd)
-{
-  if (localplayer == nullptr || user_cmd == nullptr)
-  {
-    return false;
-  }
-
-  Vec3 cart_origin{};
-  if (!find_direct_payload_push_target(localplayer, cart_origin))
-  {
-    return false;
-  }
-
-  follower_.walk_towards(localplayer, user_cmd, cart_origin);
-
-  if (follower_.has_path())
-  {
-    follower_.clear();
-    active_path_ = path_result{};
-  }
-  if (pending_job_.generation_id == current_generation_id_)
-  {
-    jobs_.cancel_generation(current_generation_id_);
-    pending_job_ = {};
-    next_path_request_time_ = global_vars != nullptr ? global_vars->curtime : 0.0f;
-  }
-
-  debug_state_.path_request_message = "direct payload";
-  return true;
 }
 
 bool navbot_controller::record_crumb_failure(const follower_tick_result& follow_result, float current_time)
@@ -1244,21 +1208,7 @@ bool navbot_controller::record_crumb_failure(const follower_tick_result& follow_
     return false;
   }
 
-  const bool sole_exit = nav_edge_valid(follow_result.failed_edge)
-    && mesh_.is_sole_nav_exit(follow_result.failed_crumb_area, follow_result.failed_edge);
-  if (sole_exit)
-  {
-    hazards_.add_soft_crumb_blacklist(
-      follow_result.failed_crumb_area,
-      follow_result.failed_edge,
-      current_time,
-      blacklist_seconds,
-      dead_end_soft_blacklist_cost);
-  }
-  else
-  {
-    hazards_.add_crumb_blacklist(follow_result.failed_crumb_area, follow_result.failed_edge, current_time, blacklist_seconds);
-  }
+  hazards_.add_crumb_blacklist(follow_result.failed_crumb_area, follow_result.failed_edge, current_time, blacklist_seconds);
   crumb_failure_ = {};
   return true;
 }
@@ -1385,7 +1335,7 @@ bool navbot_controller::should_block_pathing(Player* localplayer) const
 
   const std::string map_name = mesh_.map_name().empty() ? loaded_map_name_ : mesh_.map_name();
   const bool on_cp_or_pl_map = map_has_cp_or_pl_prefix(map_name);
-  const bool is_pipeline = map_name.starts_with("plr_pipe");
+  const bool is_pipeline = map_name.starts_with("plr_");
 
   bool warmup_active = false;
   bool setup_active = false;
@@ -1433,37 +1383,6 @@ bool navbot_controller::should_block_pathing(Player* localplayer) const
   }
 
   return false;
-}
-
-bool navbot_controller::find_direct_payload_push_target(Player* localplayer, Vec3& out_target) const
-{
-  if (localplayer == nullptr)
-  {
-    return false;
-  }
-
-  if (!active_goal_.valid || active_goal_.goal.type != goal_type::push_payload)
-  {
-    return false;
-  }
-
-  const Vec3 local_origin = localplayer->get_origin();
-  const tf_team local_team = localplayer->get_team();
-  Vec3 cart_origin{};
-  bool cart_is_our_team = false;
-  if (!goals_.find_closest_payload_cart(local_origin, local_team, payload_capture_walk_range, cart_origin, cart_is_our_team))
-  {
-    return false;
-  }
-
-  if (!cart_is_our_team)
-  {
-    return false;
-  }
-
-  cart_origin.z = local_origin.z;
-  out_target = cart_origin;
-  return true;
 }
 
 void navbot_controller::on_create_move(user_cmd* user_cmd)
@@ -1555,12 +1474,7 @@ void navbot_controller::on_create_move(user_cmd* user_cmd)
     {
       jobs_.cancel_generation(current_generation_id_);
       active_goal_ = next_goal;
-      if (active_goal_.valid && active_goal_.goal.type == goal_type::roam)
-      {
-        goals_.mark_roam_destination_cooldown(mesh_, active_goal_.goal.destination_area, current_time);
-      }
       crumb_failure_ = {};
-      consecutive_no_path_count_ = 0;
       ++current_generation_id_;
       pending_job_ = {};
       next_path_request_time_ = 0.0f;
@@ -1593,21 +1507,14 @@ void navbot_controller::on_create_move(user_cmd* user_cmd)
   debug_state_.server_recorded_snapshots = recording_status.snapshot_count;
   debug_state_.server_recording_path = recording_status.output_path;
   debug_state_.server_recording_message = recording_status.message;
+  request_path_if_needed();
   if (active_goal_.valid && active_goal_.goal.type == goal_type::reload_weapons && reload_job_still_needed(localplayer))
   {
-    request_path_if_needed();
     suppress_aimbot_for_reload_ = true;
     apply_reload_controls(user_cmd);
   }
-  else if (try_payload_capture_walk(localplayer, user_cmd))
-  {
-    debug_state_.has_active_path = false;
-    debug_state_.active_crumb_count = 0;
-    return;
-  }
   else
   {
-    request_path_if_needed();
     update_weapon_choice(localplayer);
   }
 
@@ -1878,7 +1785,6 @@ void navbot_controller::rebuild_mesh_if_needed()
   mesh_.rebuild_from_current_map();
   hazards_.clear();
   server_recorder_.reset();
-  goals_.clear_unreachable_destinations();
   clear_runtime_state();
   ++world_generation_id_;
   ++current_generation_id_;
@@ -1895,7 +1801,6 @@ void navbot_controller::rebuild_mesh_if_needed()
 
 void navbot_controller::poll_path_results()
 {
-  const auto current_time = global_vars != nullptr ? global_vars->curtime : 0.0f;
   while (true)
   {
     auto result = jobs_.poll_path_result();
@@ -1918,44 +1823,9 @@ void navbot_controller::poll_path_results()
       debug_state_.current_path_status = path.status;
       if (path.status == path_status::no_path)
       {
-        Player* localplayer = entity_list != nullptr ? entity_list->get_localplayer() : nullptr;
-        Vec3 direct_payload_target{};
-        if (find_direct_payload_push_target(localplayer, direct_payload_target))
-        {
-          consecutive_no_path_count_ = 0;
-          next_path_request_time_ = current_time;
-          debug_state_.has_active_path = false;
-          debug_state_.active_crumb_count = 0;
-          debug_state_.path_request_message = "direct payload";
-          follower_.clear();
-          active_path_ = path_result{};
-          continue;
-        }
-
         ++debug_state_.rejected_job_count;
-        ++consecutive_no_path_count_;
-        next_path_request_time_ = (global_vars != nullptr ? global_vars->curtime : 0.0f) + path_retry_interval;
-        if (consecutive_no_path_count_ >= no_path_force_goal_refresh_threshold)
-        {
-          if (active_goal_.valid)
-          {
-            goals_.mark_destination_unreachable(
-              active_goal_.goal.destination_area,
-              current_time,
-              no_path_destination_cooldown);
-          }
-          jobs_.cancel_generation(current_generation_id_);
-          ++current_generation_id_;
-          active_goal_ = {};
-          crumb_failure_ = {};
-          pending_job_ = {};
-          next_goal_refresh_time_ = 0.0f;
-          next_goal_retry_time_ = 0.0f;
-          next_path_request_time_ = 0.0f;
-          consecutive_no_path_count_ = 0;
-          continue;
-        }
         next_goal_refresh_time_ = 0.0f;
+        next_path_request_time_ = (global_vars != nullptr ? global_vars->curtime : 0.0f) + path_retry_interval;
         if (active_goal_.valid && active_goal_.goal.type == goal_type::roam)
         {
           active_goal_ = {};
@@ -1964,9 +1834,8 @@ void navbot_controller::poll_path_results()
       continue;
     }
 
-    consecutive_no_path_count_ = 0;
-    follower_.set_path(path_result(path));
     active_path_ = path;
+    follower_.set_path(path_result(path));
     debug_state_.current_path_status = path.status;
     debug_state_.last_solve_time_ms = path.solve_time_ms;
     debug_state_.has_active_path = true;

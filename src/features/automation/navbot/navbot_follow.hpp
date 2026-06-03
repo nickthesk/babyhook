@@ -39,8 +39,6 @@ public:
 
   follower_tick_result tick(const navbot_mesh& mesh, Player* localplayer, user_cmd* user_cmd, float current_time);
 
-  void walk_towards(Player* localplayer, user_cmd* user_cmd, const Vec3& target) const;
-
 private:
   void mark_crumb_reached(size_t crumb_index, float current_time);
   void advance_to_crumb(size_t crumb_index, float current_time);

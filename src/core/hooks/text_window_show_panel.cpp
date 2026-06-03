@@ -19,11 +19,10 @@ V  o o  V  file: src/core/hooks/text_window_show_panel.cpp
 void (*text_window_show_panel_original)(void*, bool) = NULL;
 
 void text_window_show_panel_hook(void* me, bool show) {
-  const bool keep_during_pre_round =
-      config.misc.automation.anti_motd_dont_close_during_warmup
-      && automation::controller().is_pre_round_active();
+  const bool dont_close_during_warmup =
+      config.misc.automation.anti_motd_dont_close_during_warmup && automation::controller().is_warmup_active();
 
-  if (config.misc.automation.anti_motd == true && !keep_during_pre_round) {
+  if (config.misc.automation.anti_motd == true && !dont_close_during_warmup) {
     text_window_show_panel_original(me, false);
   } else {
     text_window_show_panel_original(me, show);

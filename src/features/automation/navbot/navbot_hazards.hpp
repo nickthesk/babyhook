@@ -30,7 +30,6 @@ public:
   void add_transition_failure(nav_edge_id edge_id, float current_time, float duration);
   void refresh_crumb_blacklists(float current_time, float duration);
   void add_crumb_blacklist(nav_area_id area_id, nav_edge_id edge_id, float current_time, float duration);
-  void add_soft_crumb_blacklist(nav_area_id area_id, nav_edge_id edge_id, float current_time, float duration, float cost);
 
   [[nodiscard]] bool is_area_blocked(nav_area_id area_id, float current_time) const;
   [[nodiscard]] bool is_edge_blocked(nav_edge_id edge_id, float current_time) const;

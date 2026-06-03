@@ -61,8 +61,6 @@ private:
   [[nodiscard]] int current_captured_point_index() const;
   [[nodiscard]] uint32_t current_mini_round_mask() const;
   [[nodiscard]] bool should_block_pathing(Player* localplayer) const;
-  [[nodiscard]] bool find_direct_payload_push_target(Player* localplayer, Vec3& out_target) const;
-  [[nodiscard]] bool try_payload_capture_walk(Player* localplayer, user_cmd* user_cmd);
 
   navbot_mesh mesh_{};
   navbot_hazards hazards_{};
@@ -89,7 +87,6 @@ private:
   int pending_desired_weapon_slot_ = 0;
   float pending_desired_since_ = 0.0f;
   crumb_failure_state crumb_failure_{};
-  uint32_t consecutive_no_path_count_ = 0;
   bool suppress_aimbot_for_reload_ = false;
   int last_captured_point_index_ = -1;
   bool round_started_ = false;

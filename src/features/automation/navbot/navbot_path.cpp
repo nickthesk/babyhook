@@ -197,6 +197,33 @@ bool nav_area_has_clearance(const nav_area_data& area, const path_clearance& cle
       && (area.maxs.y - area.mins.y) >= required_width;
 }
 
+bool nav_transition_has_clearance(const nav_area_data& from_area, const nav_area_data& to_area, const path_clearance& clearance)
+{
+  if (!nav_area_has_clearance(from_area, clearance) || !nav_area_has_clearance(to_area, clearance))
+  {
+    return false;
+  }
+
+  const path_clearance normalized_clearance = normalized_path_clearance(clearance);
+  const float overlap_x = std::min(from_area.maxs.x, to_area.maxs.x) - std::max(from_area.mins.x, to_area.mins.x);
+  const float overlap_y = std::min(from_area.maxs.y, to_area.maxs.y) - std::max(from_area.mins.y, to_area.mins.y);
+  const float center_delta_x = std::fabs(to_area.center.x - from_area.center.x);
+  const float center_delta_y = std::fabs(to_area.center.y - from_area.center.y);
+  const float required_width = normalized_clearance.width + (player_clearance_margin * 2.0f);
+
+  if (center_delta_x > center_delta_y)
+  {
+    return overlap_y >= required_width;
+  }
+
+  if (center_delta_y > center_delta_x)
+  {
+    return overlap_x >= required_width;
+  }
+
+  return std::max(overlap_x, overlap_y) >= required_width;
+}
+
 bool area_has_tf_attribute(const nav_area_data& area, uint32_t attributes)
 {
   return (area.tf_attributes & attributes) != 0;
@@ -549,8 +576,7 @@ path_result solve_path_request(const navbot_mesh& mesh, const navbot_hazards& ha
         continue;
       }
 
-      if (!nav_area_has_clearance(area, clearance) ||
-          !nav_area_has_clearance(cache.areas[next_index], clearance))
+      if (!nav_transition_has_clearance(area, cache.areas[next_index], clearance))
       {
         continue;
       }
@@ -565,6 +591,7 @@ path_result solve_path_request(const navbot_mesh& mesh, const navbot_hazards& ha
       }
 
       auto step_cost = distance_value(points.current, points.next);
+      step_cost += hazards.area_cost(next_id, current_time);
       auto new_cost = node.g_cost + step_cost;
 
       if (new_cost >= nodes[next_index].g_cost)

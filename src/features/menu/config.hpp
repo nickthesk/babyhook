@@ -146,8 +146,6 @@ struct Aim {
   float bone_size_subtract = 1.0f;
   float bone_size_min_scale = 0.4f;
 
-  bool hitscan_lead_target = true;
-
   uint32_t ignore = ignore_default;
 
   int max_targets = 6;

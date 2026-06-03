@@ -125,9 +125,6 @@ bool map_is_payload(const std::string& map_name)
   return map_name.starts_with("pl_") || map_name.starts_with("plr_");
 }
 
-constexpr float roam_destination_cooldown_seconds = 40.0f;
-constexpr float roam_destination_cooldown_radius = 450.0f;
-
 bool area_is_roam_candidate(const navbot_mesh& mesh, nav_area_id area_id)
 {
   auto area = mesh.find_area(area_id);
@@ -1085,49 +1082,10 @@ goal_candidate choose_heal_follow_goal(const navbot_mesh& mesh, Player* localpla
 
 } // namespace
 
-bool navbot_goals::find_closest_payload_cart(const Vec3& local_origin, tf_team local_team, float max_distance, Vec3& out_origin, bool& out_is_our_team) const
-{
-  out_origin = {};
-  out_is_our_team = false;
-  if (entity_list == nullptr)
-  {
-    return false;
-  }
-
-  const auto max_entities = entity_list->get_max_entities();
-  const auto max_distance_sq = max_distance * max_distance;
-  auto best_distance_sq = max_distance_sq;
-  auto found = false;
-
-  for (int entity_index = 1; entity_index <= max_entities; ++entity_index)
-  {
-    auto* entity = entity_list->entity_from_index(entity_index);
-    if (entity == nullptr || entity->is_dormant() || !is_payload_cart(entity))
-    {
-      continue;
-    }
-
-    const auto cart_origin = payload_origin(entity);
-    const auto distance_sq = distance_squared_2d(local_origin, cart_origin);
-    if (distance_sq > best_distance_sq)
-    {
-      continue;
-    }
-
-    best_distance_sq = distance_sq;
-    out_origin = cart_origin;
-    out_is_our_team = entity->get_team() == local_team;
-    found = true;
-  }
-
-  return found;
-}
-
 void navbot_goals::reset_flag_home_cache()
 {
   red_flag_home_ = {};
   blu_flag_home_ = {};
-  reset_roam_state();
 }
 
 void navbot_goals::update_flag_home_cache(tf_team team, const Vec3& origin)
@@ -1253,8 +1211,6 @@ goal_candidate navbot_goals::choose_roam_goal(const navbot_mesh& mesh, Player* l
     auto persisted_area = mesh.find_area(last_roam_area_);
     if (persisted_area != nullptr
       && area_is_roam_candidate(mesh, last_roam_area_)
-      && !destination_recently_unreachable(last_roam_area_, current_time)
-      && !roam_area_on_cooldown(last_roam_area_, current_time)
       && distance_squared_2d(localplayer->get_origin(), persisted_area->center) > 250.0f * 250.0f)
     {
       return make_roam_candidate(mesh, localplayer, last_roam_area_, prefer_spawn_exit);
@@ -1264,20 +1220,11 @@ goal_candidate navbot_goals::choose_roam_goal(const navbot_mesh& mesh, Player* l
   auto candidate_ids = std::vector<nav_area_id>{};
   candidate_ids.reserve(mesh.cache().areas.size());
 
-  auto append_candidates = [&candidate_ids, &mesh, local_area_id, this, current_time](const std::vector<nav_area_id>& areas, bool skip_spawn_room)
+  auto append_candidates = [&candidate_ids, &mesh, local_area_id](const std::vector<nav_area_id>& areas, bool skip_spawn_room)
   {
     for (auto area_id : areas)
     {
       if (!area_id.valid() || area_id.value == local_area_id.value || !area_is_roam_candidate(mesh, area_id))
-      {
-        continue;
-      }
-
-      if (destination_recently_unreachable(area_id, current_time))
-      {
-        continue;
-      }
-      if (roam_area_on_cooldown(area_id, current_time))
       {
         continue;
       }
@@ -1356,15 +1303,11 @@ goal_candidate navbot_goals::choose_roam_goal(const navbot_mesh& mesh, Player* l
 
   if (candidate_ids.empty())
   {
-    const auto local_origin = localplayer->get_origin();
     for (const auto& area : mesh.cache().areas)
     {
       if (area.id.value == local_area_id.value
         || !area_is_roam_candidate(mesh, area.id)
-        || (area.flags & nav_area_flag_spawn_room) != 0
-        || destination_recently_unreachable(area.id, current_time)
-        || roam_area_on_cooldown(area.id, current_time)
-        || distance_squared_2d(local_origin, area.center) <= 250.0f * 250.0f)
+        || (area.flags & nav_area_flag_spawn_room) != 0)
       {
         continue;
       }
@@ -1375,6 +1318,9 @@ goal_candidate navbot_goals::choose_roam_goal(const navbot_mesh& mesh, Player* l
 
   if (candidate_ids.empty())
   {
+    best = make_candidate(goal_type::roam, 1.0f, local_area->center, local_area->id);
+    last_roam_area_ = best.destination_area;
+    next_roam_refresh_time_ = current_time + 2.0f;
     return best;
   }
 
@@ -1391,7 +1337,7 @@ goal_candidate navbot_goals::choose_roam_goal(const navbot_mesh& mesh, Player* l
       > roam_area_score(*right_area, localplayer->get_origin(), prefer_spawn_exit);
   });
 
-  auto candidate_limit = std::min<size_t>(candidate_ids.size(), 8);
+  auto candidate_limit = std::min<size_t>(candidate_ids.size(), 4);
   auto selected_index = roam_cursor_ % candidate_limit;
   ++roam_cursor_;
 
@@ -1414,9 +1360,6 @@ navbot_goal_state navbot_goals::select_goal(const navbot_mesh& mesh, Player* loc
     cached_map_name_ = mesh.map_name();
     reset_flag_home_cache();
   }
-
-  prune_unreachable_destinations(current_time);
-  prune_roam_cooldowns(current_time);
 
   goal_candidate best{};
   best.score = -1.0f;
@@ -1478,13 +1421,6 @@ navbot_goal_state navbot_goals::select_goal(const navbot_mesh& mesh, Player* loc
     choose_best(best, choose_roam_goal(mesh, localplayer, current_time));
   }
 
-  if (best.destination_area.valid() && destination_recently_unreachable(best.destination_area, current_time))
-  {
-    best = {};
-    best.score = -1.0f;
-    choose_best(best, choose_roam_goal(mesh, localplayer, current_time));
-  }
-
   if (best.destination_area.valid())
   {
     state.valid = true;
@@ -1493,141 +1429,6 @@ navbot_goal_state navbot_goals::select_goal(const navbot_mesh& mesh, Player* loc
   }
 
   return state;
-}
-
-void navbot_goals::mark_destination_unreachable(nav_area_id area_id, float current_time, float cooldown_seconds)
-{
-  if (!area_id.valid() || cooldown_seconds <= 0.0f)
-  {
-    return;
-  }
-
-  unreachable_destinations_[area_id.value] = current_time + cooldown_seconds;
-
-  if (last_roam_area_.valid() && last_roam_area_.value == area_id.value)
-  {
-    last_roam_area_ = {};
-    next_roam_refresh_time_ = 0.0f;
-  }
-}
-
-void navbot_goals::mark_roam_destination_cooldown(const navbot_mesh& mesh, nav_area_id area_id, float current_time)
-{
-  if (!area_id.valid())
-  {
-    return;
-  }
-
-  const float expire_time = current_time + roam_destination_cooldown_seconds;
-  set_roam_area_cooldown(area_id, expire_time);
-
-  const nav_area_data* area = mesh.find_area(area_id);
-  if (area == nullptr)
-  {
-    return;
-  }
-
-  const std::vector<navbot_mesh::nearby_area> nearby_areas = mesh.areas_in_radius(area->center, roam_destination_cooldown_radius);
-  for (const navbot_mesh::nearby_area& nearby_area : nearby_areas)
-  {
-    set_roam_area_cooldown(nearby_area.id, expire_time);
-  }
-}
-
-void navbot_goals::prune_unreachable_destinations(float current_time)
-{
-  for (auto it = unreachable_destinations_.begin(); it != unreachable_destinations_.end();)
-  {
-    if (it->second <= current_time)
-    {
-      it = unreachable_destinations_.erase(it);
-    }
-    else
-    {
-      ++it;
-    }
-  }
-}
-
-void navbot_goals::clear_unreachable_destinations()
-{
-  unreachable_destinations_.clear();
-  reset_roam_state();
-}
-
-bool navbot_goals::destination_recently_unreachable(nav_area_id area_id, float current_time) const
-{
-  if (!area_id.valid())
-  {
-    return false;
-  }
-
-  auto it = unreachable_destinations_.find(area_id.value);
-  if (it == unreachable_destinations_.end())
-  {
-    return false;
-  }
-
-  return it->second > current_time;
-}
-
-void navbot_goals::reset_roam_state()
-{
-  last_roam_area_ = {};
-  next_roam_refresh_time_ = 0.0f;
-  roam_cursor_ = 0;
-  roam_cooldowns_.clear();
-}
-
-void navbot_goals::prune_roam_cooldowns(float current_time)
-{
-  for (std::unordered_map<uint32_t, float>::iterator it = roam_cooldowns_.begin(); it != roam_cooldowns_.end();)
-  {
-    if (it->second <= current_time)
-    {
-      it = roam_cooldowns_.erase(it);
-    }
-    else
-    {
-      ++it;
-    }
-  }
-}
-
-void navbot_goals::set_roam_area_cooldown(nav_area_id area_id, float expire_time)
-{
-  if (!area_id.valid())
-  {
-    return;
-  }
-
-  std::unordered_map<uint32_t, float>::iterator it = roam_cooldowns_.find(area_id.value);
-  if (it == roam_cooldowns_.end())
-  {
-    roam_cooldowns_.emplace(area_id.value, expire_time);
-    return;
-  }
-
-  if (it->second < expire_time)
-  {
-    it->second = expire_time;
-  }
-}
-
-bool navbot_goals::roam_area_on_cooldown(nav_area_id area_id, float current_time) const
-{
-  if (!area_id.valid())
-  {
-    return false;
-  }
-
-  std::unordered_map<uint32_t, float>::const_iterator it = roam_cooldowns_.find(area_id.value);
-  if (it == roam_cooldowns_.end())
-  {
-    return false;
-  }
-
-  return it->second > current_time;
 }
 
 } // namespace navbot

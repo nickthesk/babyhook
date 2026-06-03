@@ -135,7 +135,7 @@ int path_alpha_for_crumb(size_t crumb_index, size_t current_crumb_index, float c
   auto reached_time = reached_crumb_times[crumb_index];
   if (reached_time <= 0.0f)
   {
-    return 0;
+    return 96;
   }
 
   auto elapsed = current_time - reached_time;

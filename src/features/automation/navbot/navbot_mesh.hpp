@@ -131,7 +131,6 @@ public:
   [[nodiscard]] std::optional<uint16_t> find_connection_index(nav_area_id from_area, nav_area_id to_area) const;
   [[nodiscard]] bool area_has_flag(nav_area_id area_id, uint32_t flag) const;
   [[nodiscard]] std::vector<nearby_area> areas_in_radius(const Vec3& origin, float radius) const;
-  [[nodiscard]] bool is_sole_nav_exit(nav_area_id from_area, nav_edge_id edge) const;
 
 private:
   bool load_current_map_file();

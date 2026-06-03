@@ -428,10 +428,6 @@ void navbot_follow::set_path(path_result path)
 {
   active_path_ = std::move(path);
   reached_crumb_times_.assign(active_path_.crumbs.size(), 0.0f);
-  if (!reached_crumb_times_.empty())
-  {
-    reached_crumb_times_[0] = 0.001f;
-  }
   current_crumb_index_ = 0;
   current_crumb_start_time_ = 0.0f;
   last_progress_time_ = 0.0f;
@@ -641,8 +637,7 @@ follower_tick_result navbot_follow::tick(const navbot_mesh& mesh, Player* localp
   if (current_time - last_vischeck_time_ >= 0.25f)
   {
     last_vischeck_time_ = current_time;
-    if (active_path_.goal != goal_type::push_payload
-      && !is_transition_passable(active_path_, current_crumb_index_, localplayer))
+    if (!is_transition_passable(active_path_, current_crumb_index_, localplayer))
     {
       fill_failure_result(result, follower_failure_reason::hazard_intersection, mesh, active_path_, current_crumb_index_);
       return result;
@@ -691,42 +686,18 @@ follower_tick_result navbot_follow::tick(const navbot_mesh& mesh, Player* localp
 
   if (current_time - last_progress_time_ > stuck_fail_time)
   {
-    const auto at_destination_crumb = current_crumb_index_ + 1 >= active_path_.crumbs.size();
-    if (!(active_path_.goal == goal_type::push_payload && at_destination_crumb))
-    {
-      fill_failure_result(result, follower_failure_reason::no_progress, mesh, active_path_, current_crumb_index_);
-      return result;
-    }
+    fill_failure_result(result, follower_failure_reason::no_progress, mesh, active_path_, current_crumb_index_);
+    return result;
   }
 
   if (current_time - current_crumb_start_time_ > blocked_fail_time)
   {
-    const auto at_destination_crumb = current_crumb_index_ + 1 >= active_path_.crumbs.size();
-    if (active_path_.goal == goal_type::push_payload && at_destination_crumb)
-    {
-      const auto push_timeout = blocked_fail_time * 4.0f;
-      if (current_time - current_crumb_start_time_ <= push_timeout)
-      {
-        result.has_movement = true;
-        return result;
-      }
-    }
     fill_failure_result(result, follower_failure_reason::blocked, mesh, active_path_, current_crumb_index_);
     return result;
   }
 
   result.has_movement = true;
   return result;
-}
-
-void navbot_follow::walk_towards(Player* localplayer, user_cmd* user_cmd, const Vec3& target) const
-{
-  if (localplayer == nullptr || user_cmd == nullptr)
-  {
-    return;
-  }
-
-  apply_walk_towards(localplayer, user_cmd, target);
 }
 
 } // namespace navbot

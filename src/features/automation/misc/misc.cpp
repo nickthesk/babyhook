@@ -1340,12 +1340,12 @@ bool automation_controller::is_warmup_active() const
     {
       static const int waiting_offset = tf2_netvars::find_offset("DT_TFGameRulesProxy", { "m_bInWaitingForPlayers" });
       static const int state_offset = tf2_netvars::find_offset("DT_TFGameRulesProxy", { "m_iRoundState" });
-
+      
       bool waiting = false;
       int state = -1;
       bool has_waiting_state = false;
       bool has_round_state = false;
-
+      
       if (waiting_offset != 0)
       {
         waiting = *reinterpret_cast<bool*>(reinterpret_cast<std::uintptr_t>(proxy) + waiting_offset);
@@ -1360,7 +1360,7 @@ bool automation_controller::is_warmup_active() const
           has_round_state = true;
         }
       }
-
+      
       if (has_waiting_state || has_round_state)
       {
         return waiting || (has_round_state && round_state_is_warmup(state));
@@ -1368,56 +1368,6 @@ bool automation_controller::is_warmup_active() const
     }
   }
   return warmup_active_;
-}
-
-bool automation_controller::is_pre_round_active() const
-{
-  if (is_warmup_active())
-  {
-    return true;
-  }
-
-  if (engine != nullptr)
-  {
-    const char* raw_level = engine->get_level_name();
-    if (raw_level != nullptr)
-    {
-      std::string map_name(raw_level);
-      const auto slash = map_name.find_last_of("/\\");
-      if (slash != std::string::npos)
-      {
-        map_name = map_name.substr(slash + 1);
-      }
-      if (map_name.ends_with(".bsp"))
-      {
-        map_name.resize(map_name.size() - 4);
-      }
-
-      if (map_name.starts_with("plr_pipe"))
-      {
-        return false;
-      }
-    }
-  }
-
-  if (entity_list != nullptr)
-  {
-    Entity* proxy = entity_list->get_game_rules_proxy();
-    if (proxy != nullptr)
-    {
-      static const int setup_offset = tf2_netvars::find_offset("DT_TFGameRulesProxy", { "m_bInSetup" });
-      if (setup_offset != 0)
-      {
-        const bool in_setup = *reinterpret_cast<bool*>(reinterpret_cast<std::uintptr_t>(proxy) + setup_offset);
-        if (in_setup)
-        {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
 }
 
 void automation_controller::apply_misc_convars()
@@ -1509,7 +1459,7 @@ void automation_controller::run_auto_class_select()
     return;
   }
 
-  if (config.misc.automation.auto_class_dont_join_during_warmup && is_pre_round_active())
+  if (config.misc.automation.auto_class_dont_join_during_warmup && is_warmup_active())
   {
     return;
   }

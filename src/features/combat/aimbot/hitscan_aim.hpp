@@ -891,23 +891,20 @@ inline aimbot_candidate hitscan_aim_make_candidate(Player* localplayer,
     return candidate;
   }
 
-  const Vec3 lead_point = aimbot_lead_position(point.position, player, Vec3{}, 0.0f);
-  const Vec3 lead_angles = aimbot_calculate_angles_to_position(localplayer->get_shoot_pos(), lead_point);
-
   candidate.entity = player;
   candidate.player = player;
   candidate.preferred = aimbot::has_preference(player);
   candidate.bone = point.bone;
   candidate.hitbox = point.hitbox;
   candidate.studio_hitbox = point.studio_hitbox;
-  candidate.aim_position = lead_point;
-  candidate.aim_angles = lead_angles;
+  candidate.aim_position = point.position;
+  candidate.aim_angles = point.angles;
   candidate.fov = point.fov;
   candidate.distance = distance_3d(localplayer->get_origin(), player->get_origin());
   candidate.health = player->get_health();
   candidate.simulation_time = player->get_simulation_time();
   candidate.tick_count = local_prediction_time_to_ticks(candidate.simulation_time + backtrack::interpolation_time());
-  candidate.command_angles = hitscan_aim_command_angles(localplayer, lead_angles);
+  candidate.command_angles = hitscan_aim_command_angles(localplayer, point.angles);
   candidate.visible = true;
   return candidate;
 }

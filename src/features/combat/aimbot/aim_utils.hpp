@@ -28,7 +28,6 @@ V  o o  V  file: src/features/combat/aimbot/aim_utils.hpp
 
 #include "features/automation/nographics/nographics.hpp"
 #include "features/combat/aimbot/projectile/projectile_live_data.hpp"
-#include "features/combat/backtrack/backtrack.hpp"
 #include "features/menu/config.hpp"
 #include "features/movement/local_prediction/move_sim.hpp"
 
@@ -36,11 +35,9 @@ V  o o  V  file: src/features/combat/aimbot/aim_utils.hpp
 #include "games/tf2/sdk/entities/building.hpp"
 #include "games/tf2/sdk/aim_hitboxes.hpp"
 #include "games/tf2/sdk/interfaces/attribute_manager.hpp"
-#include "games/tf2/sdk/interfaces/client_state.hpp"
 #include "games/tf2/sdk/interfaces/convar_system.hpp"
 #include "games/tf2/sdk/interfaces/engine_trace.hpp"
 #include "games/tf2/sdk/interfaces/global_vars.hpp"
-#include "games/tf2/sdk/interfaces/net_channel.hpp"
 
 struct aimbot_candidate {
   Entity* entity = nullptr;
@@ -2013,92 +2010,6 @@ inline float aimbot_candidate_target_speed(const aimbot_candidate& candidate) {
   }
 
   return local_prediction_velocity_2d_length(target_velocity) + (std::fabs(target_velocity.z) * 0.35f);
-}
-
-inline Vec3 aimbot_player_velocity(Player* player) {
-  if (player == nullptr) {
-    return Vec3{};
-  }
-
-  Vec3 velocity = local_prediction_estimate_entity_velocity(player);
-  if (local_prediction_vector_length(velocity) <= 0.001f) {
-    velocity = player->get_velocity();
-  }
-  return velocity;
-}
-
-inline bool aimbot_lead_target_enabled() {
-  return config.aimbot.hitscan_lead_target;
-}
-
-inline float aimbot_lead_seconds() {
-  float interp = 0.0f;
-  if (std::isfinite(backtrack::interpolation_time()) && backtrack::interpolation_time() > 0.0f) {
-    interp = backtrack::interpolation_time();
-  }
-
-  float rtt = 0.0f;
-  net_channel* channel = client_state != nullptr ? client_state->m_NetChannel : nullptr;
-  if (channel != nullptr) {
-    rtt = channel->get_latency(0) + channel->get_latency(1);
-  }
-
-  const float base = std::max(interp, rtt);
-  return std::clamp(base + 0.015f, 0.05f, 0.25f);
-}
-
-inline float aimbot_lead_min_speed() {
-  return 180.0f;
-}
-
-inline float aimbot_lead_max_speed() {
-  return 3000.0f;
-}
-
-inline Vec3 aimbot_lead_position(const Vec3& position,
-  Player* player,
-  const Vec3& record_velocity,
-  float record_age_seconds) {
-  if (!aimbot_lead_target_enabled() || !aimbot_vec3_is_finite(position)) {
-    return position;
-  }
-
-  const float lead_max = aimbot_lead_seconds();
-  if (lead_max <= 0.0f) {
-    return position;
-  }
-
-  Vec3 velocity = record_velocity;
-  if (!aimbot_vec3_is_finite(velocity) || local_prediction_vector_length(velocity) <= 0.001f) {
-    velocity = aimbot_player_velocity(player);
-  }
-  if (!aimbot_vec3_is_finite(velocity)) {
-    return position;
-  }
-
-  const float speed = local_prediction_velocity_2d_length(velocity) + (std::fabs(velocity.z) * 0.35f);
-  if (speed < aimbot_lead_min_speed()) {
-    return position;
-  }
-
-  const float speed_cap = aimbot_lead_max_speed();
-  if (speed > speed_cap) {
-    const float scale = speed_cap / speed;
-    velocity.x *= scale;
-    velocity.y *= scale;
-    velocity.z *= scale;
-  }
-
-  float lead_seconds = lead_max;
-  if (std::isfinite(record_age_seconds) && record_age_seconds > 0.0f) {
-    lead_seconds = std::clamp(record_age_seconds, 0.0f, lead_max);
-  }
-
-  return Vec3{
-    position.x + velocity.x * lead_seconds,
-    position.y + velocity.y * lead_seconds,
-    position.z + velocity.z * lead_seconds
-  };
 }
 
 inline float aimbot_candidate_motion_scale(const aimbot_candidate& candidate) {

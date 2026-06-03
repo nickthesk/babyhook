@@ -955,27 +955,6 @@ bool navbot_mesh::area_has_flag(nav_area_id area_id, uint32_t flag) const
   return (area->flags & flag) != 0;
 }
 
-bool navbot_mesh::is_sole_nav_exit(nav_area_id from_area, nav_edge_id edge) const
-{
-  if (!from_area.valid() || edge.from_area == 0)
-  {
-    return false;
-  }
-
-  if (edge.from_area != from_area.value)
-  {
-    return false;
-  }
-
-  const auto* area = find_area(from_area);
-  if (area == nullptr || area->connections.size() <= 1)
-  {
-    return true;
-  }
-
-  return false;
-}
-
 std::vector<navbot_mesh::nearby_area> navbot_mesh::areas_in_radius(const Vec3& origin, float radius) const
 {
   std::vector<nearby_area> result;

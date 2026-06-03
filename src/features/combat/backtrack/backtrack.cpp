@@ -787,8 +787,7 @@ aimbot_candidate find_hitscan_candidate(Player* localplayer,
           continue;
         }
 
-        const Vec3 lead_point = aimbot_lead_position(point, player, record->velocity, delta);
-        const Vec3 aim_angles = aimbot_calculate_angles_to_position(shoot_pos, lead_point);
+        const Vec3 aim_angles = aimbot_calculate_angles_to_position(shoot_pos, point);
         const Vec3 view_angles = command_angles(localplayer, aim_angles);
         const float fov = aimbot_calculate_fov(view_angles, original_view_angles);
 

@@ -36,10 +36,16 @@ struct health_history_t {
   std::unordered_map<int, health_storage_t> history_map{};
 };
 
-void on_create_move(user_cmd* cmd);
+struct create_move_result {
+  bool attack_suppressed = false;
+  bool attack_allowed = false;
+  bool crit_requested = false;
+  bool skip_requested = false;
+};
+
+[[nodiscard]] create_move_result on_create_move(user_cmd* cmd);
 void on_game_event(GameEvent* event);
 void reset();
-
 void store_health_history(int index, int health, Player* player = nullptr);
 [[nodiscard]] bool weapon_can_crit(Weapon* weapon, bool weapon_only = false);
 [[nodiscard]] int predict_command_number(user_cmd* cmd);
