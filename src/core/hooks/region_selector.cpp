@@ -11,6 +11,7 @@ V  o o  V  file: src/core/hooks/region_selector.cpp
 
 #include "region_selector.hpp"
 
+#include "core/detach.hpp"
 #include "features/automation/region_selector/region_selector.hpp"
 #include "features/menu/config.hpp"
 
@@ -41,16 +42,27 @@ int steam_networking_utils_get_direct_ping_to_pop_hook(void* self, const steam_n
 
 bool region_selector_request_queue_for_match_available()
 {
-  return region_selector_request_queue_for_match_original != nullptr;
+  return region_selector_request_queue_for_match_original != nullptr &&
+         !cathook::core::is_detach_pending();
 }
 
 void request_queue_for_match_with_region_selector(void* self, const unsigned int match_group)
 {
+  if (cathook::core::is_detach_pending())
+  {
+    return;
+  }
+
   region_selector_request_queue_for_match_hook(self, match_group);
 }
 
 void region_selector_request_queue_for_match_hook(void* self, const unsigned int match_group)
 {
+  if (cathook::core::is_detach_pending())
+  {
+    return;
+  }
+
   if (config.misc.automation.region_selector)
   {
     install_steam_networking_utils_hooks();

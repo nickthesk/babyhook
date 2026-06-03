@@ -352,6 +352,15 @@ constexpr long attach_ready_delay_max_seconds = 300;
 
 constexpr std::string_view steamclient_module = "steamclient.so";
 
+constexpr bool detach_worker_runtime_enabled()
+{
+#if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
+  return true;
+#else
+  return false;
+#endif
+}
+
 constexpr std::array<const char*, 24> game_events = {
   "client_beginconnect",
   "client_connected",
@@ -580,7 +589,8 @@ void detach_worker_main()
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  if (!detach_worker_stop.load(std::memory_order_acquire)
+  if (detach_worker_runtime_enabled()
+      && !detach_worker_stop.load(std::memory_order_acquire)
       && !process_exiting.load(std::memory_order_acquire)) {
     service_detach_request();
   }
@@ -592,6 +602,12 @@ void detach_worker_main()
 void start_detach_worker()
 {
   if (process_exiting.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  if (!detach_worker_runtime_enabled()) {
+    detach_worker_complete.store(true, std::memory_order_release);
+    detach_worker_started.store(false, std::memory_order_release);
     return;
   }
 
@@ -753,6 +769,8 @@ bool unload_module_runtime() {
   nographics::shutdown();
   backtrack::clear();
   player_model_glow::shutdown();
+  automation::shutdown();
+  region_selector_request_queue_for_match_original = nullptr;
 
   print("Unhooking Non-VMT functions\n");
   if (funchook != nullptr) {
@@ -799,10 +817,6 @@ bool unload_module_runtime() {
     get_window_WM_info_target = nullptr;
     get_window_size_target = nullptr;
     finish_sdl_hook_uninstall();
-  }
-
-  if (game_event_manager != nullptr) {
-    game_event_manager->remove_listener((IGameEventListener*)game_event_manager);
   }
 
   shutdown_vulkan_runtime();
@@ -1203,15 +1217,6 @@ bool initialize_game_runtime() {
  
   game_event_manager = (GameEventManager*)get_interface("./bin/linux64/engine.so", "GAMEEVENTSMANAGER002");
   error_assert(game_event_manager == nullptr, "GAMEEVENTSMANAGER002 is missing");
-  {
-    for (const char* event : cathook::core::game_events) {
-      game_event_manager->add_listener((IGameEventListener*)game_event_manager, event, false);
-      
-      if (!game_event_manager->find_listener((IGameEventListener*)game_event_manager, event)) {
-	print("Failed to add event listener: %s\n", event);
-      }
-    }
-  }
   
   steam_client = nullptr;
   steam_friends = nullptr;
@@ -1368,7 +1373,7 @@ bool initialize_game_runtime() {
 
   team_menu_show_panel_original = (void (*)(void*, bool))sigscan_module("client.so", sigs::team_menu_show_panel);
 
-  text_window_show_panel_original = (void (*)(void*))sigscan_module("client.so", sigs::text_window_show_panel);
+  text_window_show_panel_original = (void (*)(void*, bool))sigscan_module("client.so", sigs::text_window_show_panel);
 
   cl_move_original = (tickbase::cl_move_fn)sigscan_module("engine.so", sigs::cl_move);
   error_assert(cl_move_original == nullptr, "Failed to find CL_Move");
@@ -1465,14 +1470,6 @@ bool initialize_game_runtime() {
       (void**)&host_is_secure_server_allowed_original,
       (void*)host_is_secure_server_allowed_hook);
     error_assert(rv != 0, "Failed to prepare Host_IsSecureServerAllowed hook\n");
-  }
-
-  if (region_selector_request_queue_for_match_original != nullptr) {
-    rv = funchook_prepare(
-      funchook,
-      (void**)&region_selector_request_queue_for_match_original,
-      (void*)region_selector_request_queue_for_match_hook);
-    error_assert(rv != 0, "Failed to prepare CTFPartyClient::RequestQueueForMatch hook\n");
   }
 
   if (tf_gc_client_system_so_event_original != nullptr) {

@@ -14,11 +14,11 @@
 #include "features/menu/config.hpp"
 #include "features/automation/misc/misc.hpp"
 
-void (*text_window_show_panel_original)(void*) = NULL;
+void (*text_window_show_panel_original)(void*, bool) = NULL;
 
-void text_window_show_panel_hook(void* me) {
+void text_window_show_panel_hook(void* me, bool show) {
   if (automation::controller().anti_motd_handle_show_panel())
     return;
 
-  text_window_show_panel_original(me);
+  text_window_show_panel_original(me, show);
 }

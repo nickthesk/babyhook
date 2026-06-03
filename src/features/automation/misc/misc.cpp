@@ -28,6 +28,7 @@ V  o o  V  file: src/features/automation/misc/misc.cpp
 
 #include "core/shared/sigs.hpp"
 #include "core/hooks/region_selector.hpp"
+#include "core/detach.hpp"
 #include "core/print.hpp"
 #include "core/math/math.hpp"
 #include "core/logger.hpp"
@@ -596,6 +597,11 @@ bool should_emit_queue_debug(float& next_log_time)
 
 request_queue_for_match_fn get_shared_request_queue_for_match()
 {
+  if (cathook::core::is_detach_pending())
+  {
+    return nullptr;
+  }
+
   if (!region_selector_request_queue_for_match_available())
   {
     return nullptr;
@@ -740,7 +746,9 @@ bool is_in_standby_queue(void* party_client)
 bool request_match_queue(void* party_client, unsigned int queue_mode)
 {
   initialize_party_client_api();
-  if (party_client == nullptr || g_party_client_api.request_queue_for_match == nullptr)
+  if (cathook::core::is_detach_pending() ||
+      party_client == nullptr ||
+      g_party_client_api.request_queue_for_match == nullptr)
   {
     return false;
   }
@@ -758,7 +766,9 @@ bool request_match_queue(void* party_client, unsigned int queue_mode)
 bool cancel_match_queue(void* party_client, unsigned int queue_mode)
 {
   initialize_party_client_api();
-  if (party_client == nullptr || g_party_client_api.request_leave_for_match == nullptr)
+  if (cathook::core::is_detach_pending() ||
+      party_client == nullptr ||
+      g_party_client_api.request_leave_for_match == nullptr)
   {
     return false;
   }
@@ -1076,11 +1086,19 @@ automation_controller& controller()
   return instance;
 }
 
+void shutdown()
+{
+  g_party_client_api = {};
+  g_report_player_account = nullptr;
+  g_report_player_account_initialized = false;
+}
+
 bool reload_casual_criteria()
 {
   initialize_party_client_api();
 
-  if (g_party_client_api.get_party_client == nullptr ||
+  if (cathook::core::is_detach_pending() ||
+      g_party_client_api.get_party_client == nullptr ||
       g_party_client_api.load_saved_casual_criteria == nullptr)
   {
     return false;
@@ -1100,7 +1118,8 @@ bool request_casual_queue()
 {
   initialize_party_client_api();
 
-  if (g_party_client_api.get_party_client == nullptr ||
+  if (cathook::core::is_detach_pending() ||
+      g_party_client_api.get_party_client == nullptr ||
       g_party_client_api.request_queue_for_match == nullptr)
   {
     return false;
@@ -1125,7 +1144,8 @@ bool cancel_casual_queue()
 {
   initialize_party_client_api();
 
-  if (g_party_client_api.get_party_client == nullptr ||
+  if (cathook::core::is_detach_pending() ||
+      g_party_client_api.get_party_client == nullptr ||
       g_party_client_api.request_leave_for_match == nullptr)
   {
     return false;
@@ -1145,7 +1165,8 @@ bool abandon_current_match()
 {
   initialize_party_client_api();
 
-  if (g_party_client_api.get_matchmaking_client == nullptr ||
+  if (cathook::core::is_detach_pending() ||
+      g_party_client_api.get_matchmaking_client == nullptr ||
       g_party_client_api.abandon_current_match == nullptr)
   {
     return false;
@@ -1163,7 +1184,9 @@ bool abandon_current_match()
 
 void automation_controller::on_create_move(user_cmd* user_cmd)
 {
-  if (engine == nullptr || global_vars == nullptr)
+  if (cathook::core::is_detach_pending() ||
+      engine == nullptr ||
+      global_vars == nullptr)
   {
     return;
   }
@@ -1204,7 +1227,9 @@ void automation_controller::on_create_move(user_cmd* user_cmd)
 
 void automation_controller::on_frame_stage_notify()
 {
-  if (engine == nullptr || global_vars == nullptr)
+  if (cathook::core::is_detach_pending() ||
+      engine == nullptr ||
+      global_vars == nullptr)
   {
     return;
   }
@@ -1218,6 +1243,11 @@ void automation_controller::on_frame_stage_notify()
 
 void automation_controller::on_paint()
 {
+  if (cathook::core::is_detach_pending())
+  {
+    return;
+  }
+
   nographics::update();
   process_killsay();
 
@@ -1233,7 +1263,9 @@ void automation_controller::on_paint()
 void automation_controller::on_menu_tick()
 {
 #if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
-  if (engine == nullptr || global_vars == nullptr)
+  if (cathook::core::is_detach_pending() ||
+      engine == nullptr ||
+      global_vars == nullptr)
   {
     return;
   }
@@ -1245,7 +1277,9 @@ void automation_controller::on_menu_tick()
 
 void automation_controller::on_dispatch_user_message(int message_type, const bf_read* message_data)
 {
-  if (!config.misc.automation.anti_autobalance || engine == nullptr)
+  if (cathook::core::is_detach_pending() ||
+      !config.misc.automation.anti_autobalance ||
+      engine == nullptr)
   {
     return;
   }
@@ -1267,6 +1301,11 @@ void automation_controller::on_dispatch_user_message(int message_type, const bf_
 
 void automation_controller::on_game_event(GameEvent* event)
 {
+  if (cathook::core::is_detach_pending())
+  {
+    return;
+  }
+
   if (event != nullptr)
   {
     const char* name = event->get_name();
