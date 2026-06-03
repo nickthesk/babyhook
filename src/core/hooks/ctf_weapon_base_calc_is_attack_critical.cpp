@@ -1,4 +1,6 @@
 #include "games/tf2/sdk/entities/weapon.hpp"
+#include "games/tf2/sdk/entities/player.hpp"
+#include "games/tf2/sdk/interfaces/global_vars.hpp"
 #include "games/tf2/sdk/interfaces/prediction.hpp"
 
 using ctf_weapon_base_calc_is_attack_critical_fn = void (*)(Weapon*);
@@ -37,9 +39,41 @@ struct crit_prediction_state
   float crit_token_bucket = 0.0f;
   int crit_checks = 0;
   int crit_seed_requests = 0;
+  int last_crit_check_frame = 0;
   float last_rapid_fire_crit_check_time = 0.0f;
   float crit_time = 0.0f;
   int current_seed = 0;
+};
+
+struct framecount_guard
+{
+  bool active = false;
+  int previous_framecount = 0;
+
+  explicit framecount_guard(Weapon* weapon)
+  {
+    if (weapon == nullptr || global_vars == nullptr) {
+      return;
+    }
+
+    Entity* owner_entity = weapon->to_entity()->get_owner_entity();
+    Player* owner = reinterpret_cast<Player*>(owner_entity);
+    user_cmd* command = owner != nullptr ? owner->current_command() : nullptr;
+    if (command == nullptr || command->command_number <= 0) {
+      return;
+    }
+
+    previous_framecount = global_vars->framecount;
+    global_vars->framecount = command->command_number;
+    active = true;
+  }
+
+  ~framecount_guard()
+  {
+    if (active && global_vars != nullptr) {
+      global_vars->framecount = previous_framecount;
+    }
+  }
 };
 
 Weapon* saved_weapon = nullptr;
@@ -51,6 +85,7 @@ crit_prediction_state read_crit_prediction_state(Weapon* weapon)
     weapon->crit_token_bucket(),
     weapon->crit_checks(),
     weapon->crit_seed_requests(),
+    weapon->last_crit_check_frame(),
     weapon->last_rapid_fire_crit_check_time(),
     weapon->crit_time(),
     weapon->current_seed()
@@ -62,6 +97,7 @@ void restore_crit_prediction_state(Weapon* weapon, const crit_prediction_state& 
   weapon->crit_token_bucket() = state.crit_token_bucket;
   weapon->crit_checks() = state.crit_checks;
   weapon->crit_seed_requests() = state.crit_seed_requests;
+  weapon->last_crit_check_frame() = state.last_crit_check_frame;
   weapon->last_rapid_fire_crit_check_time() = state.last_rapid_fire_crit_check_time;
   weapon->crit_time() = state.crit_time;
   weapon->current_seed() = saved_weapon == weapon && saved_current_seed != -1 ? saved_current_seed : state.current_seed;
@@ -76,6 +112,7 @@ void ctf_weapon_base_calc_is_attack_critical_hook(Weapon* weapon)
   }
 
   weapon_mode_guard mode_guard{ weapon };
+  framecount_guard frame_guard{ weapon };
 
   if (prediction == nullptr || prediction->first_time_predicted) {
     ctf_weapon_base_calc_is_attack_critical_original(weapon);

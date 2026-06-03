@@ -23,6 +23,7 @@ constexpr int netmsg_type_bits = 6;
 constexpr int net_tick = 3;
 constexpr int net_set_convar = 5;
 constexpr int clc_move = 9;
+constexpr int svc_packet_entities = 26;
 constexpr int num_new_command_bits = 4;
 constexpr int max_new_commands = 15;
 constexpr int num_backup_command_bits = 3;
@@ -173,6 +174,51 @@ private:
 };
 
 static_assert(offsetof(net_tick_message, message_handler) == 0x18, "net_tick_message handler offset mismatch");
+
+class svc_packet_entities_message final : public net_message_base {
+public:
+  auto read_from_buffer(bf_read& buffer) -> bool override {
+    (void)buffer;
+    return false;
+  }
+
+  auto write_to_buffer(bf_write& buffer) -> bool override {
+    (void)buffer;
+    return false;
+  }
+
+  auto get_type() const -> int override {
+    return svc_packet_entities;
+  }
+
+  auto get_group() const -> int override {
+    return net_channel_info::entities;
+  }
+
+  auto get_name() const -> const char* override {
+    return "svc_PacketEntities";
+  }
+
+  auto to_string() const -> const char* override {
+    return "svc_PacketEntities";
+  }
+
+  void* message_handler = nullptr;
+  void* unknown = nullptr;
+  int max_entries = 0;
+  int updated_entries = 0;
+  bool is_delta = false;
+  bool update_baseline = false;
+  std::uint16_t padding = 0;
+  int baseline = 0;
+  int delta_from = 0;
+  int length = 0;
+  bf_read data_in{};
+  bf_write data_out{};
+};
+
+static_assert(offsetof(svc_packet_entities_message, is_delta) == 0x30, "svc_packet_entities_message delta offset mismatch");
+static_assert(offsetof(svc_packet_entities_message, data_in) == 0x40, "svc_packet_entities_message data offset mismatch");
 
 class net_set_convar_message final : public net_message_base {
 public:

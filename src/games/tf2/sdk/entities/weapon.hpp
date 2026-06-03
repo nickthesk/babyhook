@@ -1429,6 +1429,10 @@ public:
     return *reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(this) + last_crit_check_time_offset() + 8);
   }
 
+  int& last_crit_check_frame() {
+    return *reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(this) + last_crit_check_time_offset() + 4);
+  }
+
   float& last_rapid_fire_crit_check_time() {
     return *reinterpret_cast<float*>(reinterpret_cast<uintptr_t>(this) + last_crit_check_time_offset() + 12);
   }

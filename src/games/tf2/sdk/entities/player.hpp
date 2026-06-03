@@ -859,6 +859,10 @@ public:
     return constraint_offset > 8 ? reinterpret_cast<user_cmd*>(*reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(constraint_offset - 8))) : nullptr;
   }
 
+  user_cmd* current_command(void) {
+    return get_current_cmd();
+  }
+
   void set_current_cmd(user_cmd* user_cmd) {
     static const int constraint_offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_hConstraintEntity"});
     if (constraint_offset > 8) {

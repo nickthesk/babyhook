@@ -32,6 +32,8 @@ constexpr const char* cl_move =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC 78 83 3D ? ? ? ? 01 F3 0F 11 85 ? ? ? ? 0F 8E ? ? ? ? 41 89 FE E8 ? ? ? ? 84 C0 89 C3 0F 84 ? ? ? ? 4C 8B 3D ? ? ? ? 31";
 constexpr const char* cl_read_packets =
   "55 31 C0 48 89 E5 41 57 41 56 41 55 41 89 FD 41 54 53 48 83 EC ? 48 8B 1D ? ? ? ? 48 C7 45 ? ? ? ? ?";
+constexpr const char* cl_process_packet_entities =
+  "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC ? ? ? ? 48 8B 1D ? ? ? ? 48 89 BD ? ? ? ? 48 C7 85 68 BF FF FF ? ? ? ? 48 C7 85 50 BF FF FF ? ? ? ? 4C 8B 73 18 4D 85 F6 74 ? 48 83 EC ? 4C 89 F7 45 31 C0 48 8D 05 ? ? ? ? 31 C9 31 D2 50";
 constexpr const char* host_should_run =
   "48 8B 15 ? ? ? ? B8 01 00 00 00 8B 72 58 85 F6 74 ? 48 8B 0D ? ? ? ? 8B 15";
 constexpr const char* prediction_run_simulation =

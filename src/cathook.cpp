@@ -90,6 +90,7 @@ V  o o  V  file: src/cathook.cpp
 #include "features/combat/anti_aim/anti_aim.cpp"
 #include "features/combat/random_crits/crit_hack.cpp"
 #include "core/hooks/ctf_weapon_base_calc_is_attack_critical.cpp"
+#include "core/hooks/cl_process_packet_entities.cpp"
 #include "core/hooks/cl_read_packets.cpp"
 #include "core/hooks/cl_move.cpp"
 #include "core/hooks/client_mode_create_move.cpp"
@@ -1416,6 +1417,12 @@ bool initialize_game_runtime() {
   cl_read_packets_original = (std::int64_t (*)(char))sigscan_module("engine.so", sigs::cl_read_packets);
   error_assert(cl_read_packets_original == nullptr, "Failed to find CL_ReadPackets");
 
+  cl_process_packet_entities_original =
+    (cl_process_packet_entities_fn)sigscan_module("engine.so", sigs::cl_process_packet_entities);
+  if (cl_process_packet_entities_original == nullptr) {
+    print("Failed to find CL_ProcessPacketEntities; crit hack full update state preservation disabled\n");
+  }
+
   host_is_secure_server_allowed_original =
     reinterpret_cast<host_is_secure_server_allowed_fn>(sigscan_module("engine.so", sigs::host_is_secure_server_allowed));
   if (host_is_secure_server_allowed_original == nullptr) {
@@ -1501,6 +1508,14 @@ bool initialize_game_runtime() {
 
   rv = funchook_prepare(funchook, (void**)&cl_read_packets_original, (void*)cl_read_packets_hook);
   error_assert(rv != 0, "Failed to prepare CL_ReadPackets hook\n");
+
+  if (cl_process_packet_entities_original != nullptr) {
+    rv = funchook_prepare(
+      funchook,
+      (void**)&cl_process_packet_entities_original,
+      (void*)cl_process_packet_entities_hook);
+    error_assert(rv != 0, "Failed to prepare CL_ProcessPacketEntities hook\n");
+  }
 
   if (host_is_secure_server_allowed_original != nullptr) {
     rv = funchook_prepare(
