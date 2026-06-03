@@ -64,40 +64,6 @@ constexpr float hazard_refresh_interval = 0.25f;
 #endif
 static float g_navbot_throwable_look_suppress_until = -1.0e9f;
 
-path_clearance path_clearance_for_player(Player* localplayer)
-{
-  path_clearance clearance{};
-  if (localplayer == nullptr)
-  {
-    return clearance;
-  }
-
-  const bool ducking = localplayer->is_ducking();
-  const Vec3 mins = localplayer->get_player_mins(ducking);
-  const Vec3 maxs = localplayer->get_player_maxs(ducking);
-  const float width_x = maxs.x - mins.x;
-  const float width_y = maxs.y - mins.y;
-  const float sampled_width = std::max(width_x, width_y);
-  if (std::isfinite(sampled_width) && sampled_width > 1.0f)
-  {
-    clearance.width = std::max(sampled_width, player_width);
-  }
-
-  const float half_width_x = std::max(std::fabs(mins.x), std::fabs(maxs.x));
-  const float half_width_y = std::max(std::fabs(mins.y), std::fabs(maxs.y));
-  const float sampled_half_width = std::max(half_width_x, half_width_y);
-  if (std::isfinite(sampled_half_width) && sampled_half_width > 1.0f)
-  {
-    clearance.half_width = std::max(sampled_half_width, clearance.width * 0.5f);
-  }
-  else
-  {
-    clearance.half_width = clearance.width * 0.5f;
-  }
-
-  return clearance;
-}
-
 bool navbot_weapon_is_arc_throwable(Weapon* weapon)
 {
   if (weapon == nullptr)
