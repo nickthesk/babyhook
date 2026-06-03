@@ -213,7 +213,9 @@ inline bool hitscan_aim_trace_point(Player* localplayer,
     return false;
   }
 
-  const Vec3 end_pos = point;
+  const Vec3 direction = to_point * (1.0f / distance);
+  const float trace_length = std::max(distance + 16.0f, 128.0f);
+  const Vec3 end_pos = start_pos + (direction * trace_length);
   hitscan_trace_result result = hitscan_aim_trace_line(localplayer, start_pos, end_pos, target);
   if (result_out != nullptr) {
     *result_out = result;
@@ -221,6 +223,10 @@ inline bool hitscan_aim_trace_point(Player* localplayer,
 
   if (result.entity != nullptr) {
     return hitscan_aim_same_entity(result.entity, target);
+  }
+
+  if (target->get_class_id() == class_id::PLAYER) {
+    return false;
   }
 
   return result.clear;
@@ -1023,7 +1029,8 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
   if (trace_distance <= 0.001f) {
     return false;
   }
-  Vec3 end_pos = start_pos + (forward * trace_distance);
+  const float trace_length = std::max(trace_distance + 64.0f, 128.0f);
+  Vec3 end_pos = start_pos + (forward * trace_length);
   hitscan_trace_result trace = hitscan_aim_trace_line(localplayer, start_pos, end_pos, candidate.entity);
   if (result != nullptr) {
     *result = trace;
@@ -1047,6 +1054,10 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
       result->hitbox = candidate.hitbox;
     }
     return true;
+  }
+
+  if (candidate.player != nullptr && !candidate.backtrack && candidate.hitbox == aim_hitbox_head) {
+    return false;
   }
 
   if (hitscan_aim_trace_geometry(candidate, start_pos, end_pos)) {

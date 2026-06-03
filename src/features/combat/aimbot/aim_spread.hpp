@@ -2,6 +2,7 @@
 #define AIM_SPREAD_HPP
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <climits>
 #include <cstdint>
@@ -145,6 +146,20 @@ inline bool fixed_weapon_spreads_enabled() {
   return fixed_weapon_spreads != nullptr && fixed_weapon_spreads->get_int() != 0;
 }
 
+inline bool fixed_weapon_spread_active(Weapon* weapon, int pellet_count) {
+  if (pellet_count <= 1) {
+    return false;
+  }
+
+  if (fixed_weapon_spreads_enabled()) {
+    return true;
+  }
+
+  return attribute_manager != nullptr &&
+    weapon != nullptr &&
+    attribute_manager->attrib_hook_value(0, "fixed_shot_pattern", weapon->to_entity()) != 0;
+}
+
 inline int hitscan_spread_seed(user_cmd* user_cmd) {
   if (user_cmd == nullptr) {
     return 0;
@@ -162,7 +177,75 @@ inline int hitscan_spread_seed(user_cmd* user_cmd) {
   return (MD5_PseudoRandom(static_cast<unsigned int>(cmd_num)) & INT_MAX) & 255;
 }
 
-inline bool hitscan_spread_offset(user_cmd* user_cmd, int pellet_index, float spread, Vec3* offset_out) {
+inline float hitscan_first_shot_spread_scale(Weapon* weapon, int pellet_count) {
+  if (weapon == nullptr || attribute_manager == nullptr || global_vars == nullptr) {
+    return 0.0f;
+  }
+
+  const float elapsed = global_vars->curtime - weapon->get_last_attack();
+  const float ready_time = pellet_count > 1 ? 0.25f : 1.25f;
+  if (!std::isfinite(elapsed) || elapsed <= ready_time) {
+    return 0.0f;
+  }
+
+  const float scale = attribute_manager->attrib_hook_value(0.0f, "mult_spread_scale_first_shot", weapon->to_entity());
+  return std::isfinite(scale) ? scale : 0.0f;
+}
+
+inline Vec3 fixed_hitscan_spread_offset(user_cmd* user_cmd, int pellet_index, int pellet_count, float spread) {
+  static const std::array<Vec3, 10> small_pattern{{
+    {0.0f, 0.0f, 0.0f},
+    {1.0f, 0.0f, 0.0f},
+    {-1.0f, 0.0f, 0.0f},
+    {0.0f, -1.0f, 0.0f},
+    {0.0f, 1.0f, 0.0f},
+    {0.85f, -0.85f, 0.0f},
+    {0.85f, 0.85f, 0.0f},
+    {-0.85f, -0.85f, 0.0f},
+    {-0.85f, 0.85f, 0.0f},
+    {0.0f, 0.0f, 0.0f}
+  }};
+  static const std::array<Vec3, 15> large_pattern{{
+    {0.0f, 0.0f, 0.0f},
+    {-0.5f, 0.0f, 0.0f},
+    {-1.0f, 0.0f, 0.0f},
+    {0.5f, 0.0f, 0.0f},
+    {1.0f, 0.5f, 0.0f},
+    {0.0f, 0.5f, 0.0f},
+    {-0.5f, 0.5f, 0.0f},
+    {-1.0f, 0.5f, 0.0f},
+    {0.5f, 0.5f, 0.0f},
+    {1.0f, 0.5f, 0.0f},
+    {0.0f, -0.5f, 0.0f},
+    {-0.5f, -0.5f, 0.0f},
+    {-1.0f, -0.5f, 0.0f},
+    {0.5f, -0.5f, 0.0f},
+    {1.0f, -0.5f, 0.0f}
+  }};
+
+  const int safe_pellet_index = std::max(0, pellet_index);
+  if (pellet_count <= 14) {
+    const Vec3 pattern = small_pattern[static_cast<std::size_t>(safe_pellet_index % 10)];
+    return Vec3{pattern.x * spread * 0.5f, pattern.y * spread * 0.5f, 0.0f};
+  }
+
+  valve_random_stream stream{};
+  stream.set_seed(hitscan_spread_seed(user_cmd) + safe_pellet_index);
+  const Vec3 pattern = large_pattern[static_cast<std::size_t>(safe_pellet_index % 15)];
+  return Vec3{
+    (pattern.x + stream.random_float(-0.07f, 0.07f)) * spread,
+    (pattern.y + stream.random_float(-0.07f, 0.07f)) * spread,
+    0.0f
+  };
+}
+
+inline bool hitscan_spread_offset(user_cmd* user_cmd,
+  Weapon* weapon,
+  int pellet_index,
+  int pellet_count,
+  float spread,
+  bool fixed_spread,
+  Vec3* offset_out) {
   if (offset_out == nullptr) {
     return false;
   }
@@ -172,10 +255,17 @@ inline bool hitscan_spread_offset(user_cmd* user_cmd, int pellet_index, float sp
     return true;
   }
 
+  if (fixed_spread) {
+    *offset_out = fixed_hitscan_spread_offset(user_cmd, pellet_index, pellet_count, spread);
+    return true;
+  }
+
+  const float first_shot_scale = hitscan_first_shot_spread_scale(weapon, pellet_count);
+  const float spread_range = first_shot_scale != 0.0f ? first_shot_scale : 0.5f;
   valve_random_stream stream{};
   stream.set_seed(hitscan_spread_seed(user_cmd) + std::max(0, pellet_index));
-  offset_out->x = (stream.random_float(-0.5f, 0.5f) + stream.random_float(-0.5f, 0.5f)) * spread;
-  offset_out->y = (stream.random_float(-0.5f, 0.5f) + stream.random_float(-0.5f, 0.5f)) * spread;
+  offset_out->x = (stream.random_float(-spread_range, spread_range) + stream.random_float(-spread_range, spread_range)) * spread;
+  offset_out->y = (stream.random_float(-spread_range, spread_range) + stream.random_float(-spread_range, spread_range)) * spread;
   return true;
 }
 
@@ -234,14 +324,15 @@ inline hitscan_fire_solution prepare_hitscan_fire_solution(Player* localplayer,
   const float spread = weapon_hitscan_spread(weapon);
   const bool use_spread = config.aimbot.spread_compensation && spread > 0.00001f;
   const int pellet_count = use_spread ? std::max(1, weapon->get_bullets_per_shot()) : 1;
+  const bool use_fixed_spread = use_spread && fixed_weapon_spread_active(weapon, pellet_count);
   solution.spread = spread;
   solution.pellet_count = pellet_count;
   solution.spread_signature = bullet_spread_signature_found;
-  solution.spread_fixed = use_spread && fixed_weapon_spreads_enabled();
+  solution.spread_fixed = use_fixed_spread;
 
   for (int pellet_index = 0; pellet_index < pellet_count; ++pellet_index) {
     Vec3 spread_offset{};
-    if (use_spread && !hitscan_spread_offset(user_cmd, pellet_index, spread, &spread_offset)) {
+    if (use_spread && !hitscan_spread_offset(user_cmd, weapon, pellet_index, pellet_count, spread, use_fixed_spread, &spread_offset)) {
       solution.seed_missing = true;
       break;
     }
