@@ -3,7 +3,7 @@
 #include "games/tf2/sdk/entities/player.hpp"
 #include "games/tf2/sdk/net_messages.hpp"
 
-using cl_process_packet_entities_fn = bool (*)(svc_packet_entities_message*);
+using cl_process_packet_entities_fn = bool (*)(void*, svc_packet_entities_message*);
 
 cl_process_packet_entities_fn cl_process_packet_entities_original = nullptr;
 
@@ -13,7 +13,6 @@ namespace
 struct packet_weapon_state
 {
   bool valid = false;
-  int handle = 0;
   float crit_token_bucket = 0.0f;
   int crit_checks = 0;
   int crit_seed_requests = 0;
@@ -33,7 +32,6 @@ packet_weapon_state read_packet_weapon_state(Player* localplayer, int slot)
   }
 
   state.valid = true;
-  state.handle = localplayer->get_weapon_handle_at(slot);
   state.crit_token_bucket = weapon->crit_token_bucket();
   state.crit_checks = weapon->crit_checks();
   state.crit_seed_requests = weapon->crit_seed_requests();
@@ -56,7 +54,7 @@ bool read_packet_weapon_states(Player* localplayer, packet_weapon_states& states
 
 void restore_packet_weapon_state(Player* localplayer, int slot, const packet_weapon_state& state)
 {
-  if (!state.valid || localplayer->get_weapon_handle_at(slot) != state.handle) {
+  if (!state.valid) {
     return;
   }
 
@@ -82,27 +80,27 @@ void restore_packet_weapon_states(Player* localplayer, const packet_weapon_state
 
 }
 
-bool cl_process_packet_entities_hook(svc_packet_entities_message* message)
+bool cl_process_packet_entities_hook(void* client_state, svc_packet_entities_message* message)
 {
   if (cl_process_packet_entities_original == nullptr) {
     return false;
   }
 
   if (message == nullptr || message->is_delta || entity_list == nullptr) {
-    return cl_process_packet_entities_original(message);
+    return cl_process_packet_entities_original(client_state, message);
   }
 
   Player* localplayer = entity_list->get_localplayer();
   if (localplayer == nullptr) {
-    return cl_process_packet_entities_original(message);
+    return cl_process_packet_entities_original(client_state, message);
   }
 
   packet_weapon_states states{};
   if (!read_packet_weapon_states(localplayer, states)) {
-    return cl_process_packet_entities_original(message);
+    return cl_process_packet_entities_original(client_state, message);
   }
 
-  const bool result = cl_process_packet_entities_original(message);
+  const bool result = cl_process_packet_entities_original(client_state, message);
   localplayer = entity_list != nullptr ? entity_list->get_localplayer() : nullptr;
   if (localplayer != nullptr) {
     restore_packet_weapon_states(localplayer, states);
