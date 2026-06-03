@@ -1320,19 +1320,20 @@ bool navbot_controller::should_block_pathing(Player* localplayer) const
     match_fully_started = round_started_ && (!on_cp_or_pl_map || is_pipeline || setup_finished_);
   }
 
-  auto local_team = localplayer->get_team();
+  const tf_team local_team = localplayer->get_team();
+  const Misc::Automation::navbot_block_during block_during = config.misc.automation.navbot_block_during_enum;
 
-  if (local_team == tf_team::BLU && setup_active)
+  if (block_during == Misc::Automation::navbot_block_during::warmup_and_setup && local_team == tf_team::BLU && setup_active)
   {
     return true;
   }
 
-  if (config.misc.automation.navbot_dont_path_unless_match_started && !match_fully_started)
+  if (block_during == Misc::Automation::navbot_block_during::warmup_and_setup && !match_fully_started)
   {
     return true;
   }
 
-  if (!config.misc.automation.navbot_dont_path_during_warmup || !warmup_active)
+  if (block_during == Misc::Automation::navbot_block_during::off || !warmup_active)
   {
     return false;
   }
