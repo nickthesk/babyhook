@@ -1457,7 +1457,13 @@ bool initialize_game_runtime() {
   ctf_weapon_base_calc_is_attack_critical_original =
     (ctf_weapon_base_calc_is_attack_critical_fn)sigscan_module("client.so", sigs::ctf_weapon_base_calc_is_attack_critical);
   if (ctf_weapon_base_calc_is_attack_critical_original == nullptr) {
-    print("Failed to find CTFWeaponBase::CalcIsAttackCritical; crit hack prediction fix disabled\n");
+    print("Failed to find CTFWeaponBase::CalcIsAttackCritical; ranged crit hack prediction fix disabled\n");
+  }
+
+  ctf_weapon_base_melee_calc_is_attack_critical_original =
+    (ctf_weapon_base_calc_is_attack_critical_fn)sigscan_module("client.so", sigs::ctf_weapon_base_melee_calc_is_attack_critical);
+  if (ctf_weapon_base_melee_calc_is_attack_critical_original == nullptr) {
+    print("Failed to find CTFWeaponBaseMelee::CalcIsAttackCritical; melee crit hack prediction fix disabled\n");
   }
 
   initialize_cl_move_globals(host_should_run);
@@ -1542,6 +1548,14 @@ bool initialize_game_runtime() {
       (void**)&ctf_weapon_base_calc_is_attack_critical_original,
       (void*)ctf_weapon_base_calc_is_attack_critical_hook);
     error_assert(rv != 0, "Failed to prepare CTFWeaponBase::CalcIsAttackCritical hook\n");
+  }
+
+  if (ctf_weapon_base_melee_calc_is_attack_critical_original != nullptr) {
+    rv = funchook_prepare(
+      funchook,
+      (void**)&ctf_weapon_base_melee_calc_is_attack_critical_original,
+      (void*)ctf_weapon_base_melee_calc_is_attack_critical_hook);
+    error_assert(rv != 0, "Failed to prepare CTFWeaponBaseMelee::CalcIsAttackCritical hook\n");
   }
 
   key_values_constructor_original = (KeyValues* (*)(void*, const char*))sigscan_module("client.so", sigs::key_values_constructor);

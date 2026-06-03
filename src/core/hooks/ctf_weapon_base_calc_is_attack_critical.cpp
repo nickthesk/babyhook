@@ -3,9 +3,10 @@
 #include "games/tf2/sdk/interfaces/global_vars.hpp"
 #include "games/tf2/sdk/interfaces/prediction.hpp"
 
-using ctf_weapon_base_calc_is_attack_critical_fn = void (*)(Weapon*);
+using ctf_weapon_base_calc_is_attack_critical_fn = bool (*)(Weapon*);
 
 ctf_weapon_base_calc_is_attack_critical_fn ctf_weapon_base_calc_is_attack_critical_original = nullptr;
+ctf_weapon_base_calc_is_attack_critical_fn ctf_weapon_base_melee_calc_is_attack_critical_original = nullptr;
 
 namespace
 {
@@ -103,25 +104,45 @@ void restore_crit_prediction_state(Weapon* weapon, const crit_prediction_state& 
   weapon->current_seed() = saved_weapon == weapon && saved_current_seed != -1 ? saved_current_seed : state.current_seed;
 }
 
-}
-
-void ctf_weapon_base_calc_is_attack_critical_hook(Weapon* weapon)
+bool run_calc_is_attack_critical_hook(
+  Weapon* weapon,
+  ctf_weapon_base_calc_is_attack_critical_fn original,
+  bool force_primary_mode)
 {
-  if (weapon == nullptr || ctf_weapon_base_calc_is_attack_critical_original == nullptr) {
-    return;
+  if (weapon == nullptr || original == nullptr) {
+    return false;
   }
 
-  weapon_mode_guard mode_guard{ weapon };
+  weapon_mode_guard mode_guard{ force_primary_mode ? weapon : nullptr };
   framecount_guard frame_guard{ weapon };
 
   if (prediction == nullptr || prediction->first_time_predicted) {
-    ctf_weapon_base_calc_is_attack_critical_original(weapon);
+    const bool result = original(weapon);
     saved_weapon = weapon;
     saved_current_seed = weapon->current_seed();
-    return;
+    return result;
   }
 
   const crit_prediction_state state = read_crit_prediction_state(weapon);
-  ctf_weapon_base_calc_is_attack_critical_original(weapon);
+  const bool result = original(weapon);
   restore_crit_prediction_state(weapon, state);
+  return result;
+}
+
+}
+
+bool ctf_weapon_base_calc_is_attack_critical_hook(Weapon* weapon)
+{
+  return run_calc_is_attack_critical_hook(
+    weapon,
+    ctf_weapon_base_calc_is_attack_critical_original,
+    true);
+}
+
+bool ctf_weapon_base_melee_calc_is_attack_critical_hook(Weapon* weapon)
+{
+  return run_calc_is_attack_critical_hook(
+    weapon,
+    ctf_weapon_base_melee_calc_is_attack_critical_original,
+    false);
 }
