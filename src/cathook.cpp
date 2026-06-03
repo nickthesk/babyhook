@@ -40,6 +40,7 @@ V  o o  V  file: src/cathook.cpp
 #include "core/detach.hpp"
 
 #include "core/types.hpp"
+#include "core/memory/byte_patch.hpp"
 #include "core/memory/memory.hpp"
 #include "core/shared/sigs.hpp"
 
@@ -158,6 +159,34 @@ namespace
 
 constexpr int steam_networking_utils_get_ping_to_data_center_index = 8;
 constexpr int steam_networking_utils_get_direct_ping_to_pop_index = 9;
+constexpr int client_objective_flag_countdown_branch_offset = 19;
+
+byte_patch client_objective_flag_countdown_patch{};
+
+void initialize_client_crashfix_patches()
+{
+  auto* match = reinterpret_cast<std::uint8_t*>(
+    sigscan_module("client.so", sigs::client_objective_flag_countdown_update));
+  if (match == nullptr) {
+    print("Failed to find client objective flag countdown crashfix patch site\n");
+    return;
+  }
+
+  client_objective_flag_countdown_patch = byte_patch(
+    match + client_objective_flag_countdown_branch_offset,
+    { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 });
+
+  if (!client_objective_flag_countdown_patch.apply()) {
+    print("Failed to apply client objective flag countdown crashfix patch\n");
+  }
+}
+
+void restore_client_crashfix_patches()
+{
+  if (!client_objective_flag_countdown_patch.restore()) {
+    print("Failed to restore client objective flag countdown crashfix patch\n");
+  }
+}
 
 } // namespace
 
@@ -767,6 +796,7 @@ bool unload_module_runtime() {
   }
 
   nographics::shutdown();
+  restore_client_crashfix_patches();
   backtrack::clear();
   player_model_glow::shutdown();
   automation::shutdown();
@@ -1167,6 +1197,8 @@ bool initialize_game_runtime() {
   if (!cathook::core::wait_for_module("client.so")) {
     return false;
   }
+
+  initialize_client_crashfix_patches();
 
   client = (Client*)get_interface("./tf/bin/linux64/client.so", "VClient017");
   error_assert(client == nullptr, "VClient017 is missing");

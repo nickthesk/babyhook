@@ -882,6 +882,112 @@ void reset_debug_runtime(navbot_debug_state& debug_state)
   debug_state.last_failure = follower_failure_reason::none;
 }
 
+struct path_spin_runtime_state
+{
+  const std::vector<crumb>* crumbs = nullptr;
+  size_t crumb_index = std::numeric_limits<size_t>::max();
+  float remaining_degrees = 0.0f;
+  float direction = 1.0f;
+  bool active = false;
+};
+
+path_spin_runtime_state g_path_spin_state{};
+
+uint32_t path_spin_hash_value(uint32_t value)
+{
+  value ^= value >> 16;
+  value *= 0x7feb352du;
+  value ^= value >> 15;
+  value *= 0x846ca68bu;
+  value ^= value >> 16;
+  return value;
+}
+
+uint32_t path_spin_hash_crumb(const crumb& path_crumb, size_t crumb_index, int command_number)
+{
+  uint32_t value = static_cast<uint32_t>(crumb_index + 1);
+  value ^= path_crumb.area_id.value + 0x9e3779b9u + (value << 6) + (value >> 2);
+  value ^= static_cast<uint32_t>(static_cast<int>(std::floor(path_crumb.world.x))) + 0x9e3779b9u + (value << 6) + (value >> 2);
+  value ^= static_cast<uint32_t>(static_cast<int>(std::floor(path_crumb.world.y))) + 0x9e3779b9u + (value << 6) + (value >> 2);
+  value ^= static_cast<uint32_t>(command_number) + 0x9e3779b9u + (value << 6) + (value >> 2);
+  return path_spin_hash_value(value);
+}
+
+void reset_path_spin_state()
+{
+  g_path_spin_state = {};
+  g_path_spin_state.crumb_index = std::numeric_limits<size_t>::max();
+}
+
+bool path_spin_trigger_matches(user_cmd* user_cmd, const std::vector<crumb>& crumbs, size_t current_index)
+{
+  if (current_index >= crumbs.size() || crumbs[current_index].kind == crumb_kind::destination)
+  {
+    return false;
+  }
+
+  switch (config.misc.automation.navbot_look_at_path_spin_trigger_mode)
+  {
+    case Misc::Automation::navbot_look_at_path_spin_trigger::transition:
+      return crumbs[current_index].kind == crumb_kind::transition_center;
+    case Misc::Automation::navbot_look_at_path_spin_trigger::interval:
+    {
+      const int interval = std::clamp(config.misc.automation.navbot_look_at_path_spin_interval, 2, 16);
+      return current_index > 0 && current_index % static_cast<size_t>(interval) == 0;
+    }
+    case Misc::Automation::navbot_look_at_path_spin_trigger::random:
+    {
+      const int chance = std::clamp(config.misc.automation.navbot_look_at_path_spin_chance, 0, 100);
+      if (chance <= 0)
+      {
+        return false;
+      }
+      if (chance >= 100)
+      {
+        return true;
+      }
+      const int command_number = user_cmd != nullptr ? user_cmd->command_number : 0;
+      return static_cast<int>(path_spin_hash_crumb(crumbs[current_index], current_index, command_number) % 100u) < chance;
+    }
+  }
+
+  return false;
+}
+
+bool path_spin_active(user_cmd* user_cmd, const std::vector<crumb>& crumbs, size_t current_index)
+{
+  if (!config.misc.automation.navbot_look_at_path_spin)
+  {
+    reset_path_spin_state();
+    return false;
+  }
+
+  if (g_path_spin_state.crumbs != &crumbs || g_path_spin_state.crumb_index != current_index)
+  {
+    g_path_spin_state.crumbs = &crumbs;
+    g_path_spin_state.crumb_index = current_index;
+    g_path_spin_state.active = path_spin_trigger_matches(user_cmd, crumbs, current_index);
+    g_path_spin_state.remaining_degrees = g_path_spin_state.active ? 360.0f : 0.0f;
+    const int command_number = user_cmd != nullptr ? user_cmd->command_number : 0;
+    g_path_spin_state.direction = (path_spin_hash_crumb(crumbs[current_index], current_index, command_number) & 1u) != 0u ? 1.0f : -1.0f;
+  }
+
+  return g_path_spin_state.active && g_path_spin_state.remaining_degrees > 0.0f;
+}
+
+float path_spin_yaw_move(float tick_interval)
+{
+  const float spin_speed = std::clamp(config.misc.automation.navbot_look_at_path_spin_speed, 180.0f, 2160.0f);
+  const float spin_step = std::min(g_path_spin_state.remaining_degrees, spin_speed * tick_interval);
+  g_path_spin_state.remaining_degrees -= spin_step;
+  if (g_path_spin_state.remaining_degrees <= 0.001f)
+  {
+    g_path_spin_state.active = false;
+    g_path_spin_state.remaining_degrees = 0.0f;
+  }
+  return spin_step * g_path_spin_state.direction;
+}
+
 void apply_reload_controls(user_cmd* user_cmd)
 {
   if (user_cmd == nullptr)
@@ -1014,8 +1120,9 @@ void apply_look_at_path(Player* localplayer, user_cmd* user_cmd, const std::vect
 
   float pitch_speed = std::clamp(config.misc.automation.navbot_look_at_path_pitch_speed, 15.0f, 720.0f);
   float yaw_speed = std::clamp(config.misc.automation.navbot_look_at_path_speed, 45.0f, 1080.0f);
-  float pitch_step = pitch_speed * global_vars->interval_per_tick;
-  float yaw_step = yaw_speed * global_vars->interval_per_tick;
+  const float tick_interval = global_vars->interval_per_tick > 0.0f ? global_vars->interval_per_tick : TICK_INTERVAL;
+  float pitch_step = pitch_speed * tick_interval;
+  float yaw_step = yaw_speed * tick_interval;
 
   float current_pitch = user_cmd->view_angles.x;
   float current_yaw = user_cmd->view_angles.y;
@@ -1026,7 +1133,9 @@ void apply_look_at_path(Player* localplayer, user_cmd* user_cmd, const std::vect
   float yaw_scale = std::min(1.0f, std::fabs(d_yaw) / 45.0f + 0.25f);
 
   float pitch_move = std::clamp(d_pitch, -pitch_step * pitch_scale, pitch_step * pitch_scale);
-  float yaw_move = std::clamp(d_yaw, -yaw_step * yaw_scale, yaw_step * yaw_scale);
+  float yaw_move = path_spin_active(user_cmd, crumbs, current_index)
+    ? path_spin_yaw_move(tick_interval)
+    : std::clamp(d_yaw, -yaw_step * yaw_scale, yaw_step * yaw_scale);
 
   user_cmd->view_angles.x = std::clamp(normalize_angle_180(current_pitch + pitch_move), -89.0f, 89.0f);
   user_cmd->view_angles.y = normalize_angle_180(current_yaw + yaw_move);

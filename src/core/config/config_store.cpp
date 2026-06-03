@@ -468,9 +468,14 @@ void config_store::import_config(const Config& config)
     set_bool("misc.automation.navbot_warmup_only_blu_cp_pl", config.misc.automation.navbot_warmup_only_blu_cp_pl);
     set_bool("misc.automation.navbot_look_at_path", config.misc.automation.navbot_look_at_path);
     set_int("misc.automation.navbot_look_mode", static_cast<int>(config.misc.automation.navbot_look_mode));
+    set_bool("misc.automation.navbot_look_at_path_spin", config.misc.automation.navbot_look_at_path_spin);
+    set_int("misc.automation.navbot_look_at_path_spin_trigger", static_cast<int>(config.misc.automation.navbot_look_at_path_spin_trigger_mode));
     set_bool("misc.automation.navbot_auto_weapon", config.misc.automation.navbot_auto_weapon);
     set_float("misc.automation.navbot_look_at_path_speed", config.misc.automation.navbot_look_at_path_speed);
     set_float("misc.automation.navbot_look_at_path_pitch_speed", config.misc.automation.navbot_look_at_path_pitch_speed);
+    set_float("misc.automation.navbot_look_at_path_spin_speed", config.misc.automation.navbot_look_at_path_spin_speed);
+    set_int("misc.automation.navbot_look_at_path_spin_interval", config.misc.automation.navbot_look_at_path_spin_interval);
+    set_int("misc.automation.navbot_look_at_path_spin_chance", config.misc.automation.navbot_look_at_path_spin_chance);
     set_int("misc.automation.navbot_look_at_path_crumb_offset", config.misc.automation.navbot_look_at_path_crumb_offset);
     set_float("misc.automation.navbot_look_at_path_ahead_base", config.misc.automation.navbot_look_at_path_ahead_base);
     set_float("misc.automation.navbot_look_at_path_ahead_velocity_scale", config.misc.automation.navbot_look_at_path_ahead_velocity_scale);
@@ -1082,6 +1087,11 @@ void config_store::export_config(Config& config) const
         get_int("misc.automation.navbot_look_mode", static_cast<int>(config.misc.automation.navbot_look_mode)),
         0,
         1));
+    config.misc.automation.navbot_look_at_path_spin = get_bool("misc.automation.navbot_look_at_path_spin", config.misc.automation.navbot_look_at_path_spin);
+    config.misc.automation.navbot_look_at_path_spin_trigger_mode = static_cast<Misc::Automation::navbot_look_at_path_spin_trigger>(std::clamp(
+        get_int("misc.automation.navbot_look_at_path_spin_trigger", static_cast<int>(config.misc.automation.navbot_look_at_path_spin_trigger_mode)),
+        0,
+        2));
     config.misc.automation.navbot_auto_weapon = get_bool("misc.automation.navbot_auto_weapon", config.misc.automation.navbot_auto_weapon);
     config.misc.automation.navbot_look_at_path_speed = std::clamp(
         get_float("misc.automation.navbot_look_at_path_speed", config.misc.automation.navbot_look_at_path_speed),
@@ -1091,6 +1101,18 @@ void config_store::export_config(Config& config) const
         get_float("misc.automation.navbot_look_at_path_pitch_speed", config.misc.automation.navbot_look_at_path_pitch_speed),
         15.0f,
         720.0f);
+    config.misc.automation.navbot_look_at_path_spin_speed = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_spin_speed", config.misc.automation.navbot_look_at_path_spin_speed),
+        180.0f,
+        2160.0f);
+    config.misc.automation.navbot_look_at_path_spin_interval = std::clamp(
+        get_int("misc.automation.navbot_look_at_path_spin_interval", config.misc.automation.navbot_look_at_path_spin_interval),
+        2,
+        16);
+    config.misc.automation.navbot_look_at_path_spin_chance = std::clamp(
+        get_int("misc.automation.navbot_look_at_path_spin_chance", config.misc.automation.navbot_look_at_path_spin_chance),
+        0,
+        100);
     config.misc.automation.navbot_look_at_path_crumb_offset = std::clamp(
         get_int("misc.automation.navbot_look_at_path_crumb_offset", config.misc.automation.navbot_look_at_path_crumb_offset),
         0,

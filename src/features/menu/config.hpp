@@ -625,6 +625,12 @@ struct Misc {
       og = 1
     };
 
+    enum class navbot_look_at_path_spin_trigger {
+      transition = 0,
+      interval = 1,
+      random = 2
+    };
+
     enum class navbot_block_during {
       off = 0,
       warmup = 1,
@@ -711,9 +717,14 @@ struct Misc {
     bool navbot_warmup_only_blu_cp_pl = false;
     bool navbot_look_at_path = false;
     navbot_look_at_path_mode navbot_look_mode = navbot_look_at_path_mode::smooth;
+    bool navbot_look_at_path_spin = false;
+    navbot_look_at_path_spin_trigger navbot_look_at_path_spin_trigger_mode = navbot_look_at_path_spin_trigger::transition;
     bool navbot_auto_weapon = true;
     float navbot_look_at_path_speed = 360.0f;
     float navbot_look_at_path_pitch_speed = 162.0f;
+    float navbot_look_at_path_spin_speed = 720.0f;
+    int navbot_look_at_path_spin_interval = 4;
+    int navbot_look_at_path_spin_chance = 25;
     int navbot_look_at_path_crumb_offset = 0;
     float navbot_look_at_path_ahead_base = 220.0f;
     float navbot_look_at_path_ahead_velocity_scale = 0.45f;

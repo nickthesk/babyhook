@@ -204,6 +204,8 @@ constexpr const char* replay_ui_nullcheck_7 =
   "48 8D 05 ? ? ? ? 48 8B 38 48 8B 07 FF 50 38 84 C0 0F 84 ? ? ? ? 4C 8D 3D";
 constexpr const char* replay_ui_nullcheck_8 =
   "48 8D 05 ? ? ? ? 48 8B 38 48 8B 07 FF 90 D0 00 00 00 E9 ? ? ? ?";
+constexpr const char* client_objective_flag_countdown_update =
+  "49 8B BC 24 ? ? ? ? 48 8B 07 FF 90 ? ? ? ? 84 C0 0F 85 ? ? ? ? 49 8B 06 48 85 C0 74 ?";
 constexpr const char* econ_item_view_get_item_definition_index =
   "48 8B 47 08 48 85 C0 74 ? 8B 40 20 C3 0F 1F 00 48 8B 07 8B 80 BC 00 00 00 C3";
 constexpr const char* character_info_open =
