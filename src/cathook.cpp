@@ -118,6 +118,7 @@ V  o o  V  file: src/cathook.cpp
 #include "core/hooks/intro_menu_on_tick.cpp"
 #include "core/hooks/class_menu_show_panel.cpp"
 #include "core/hooks/team_menu_show_panel.cpp"
+#include "core/hooks/map_info_menu_show_panel.cpp"
 #include "core/hooks/text_window_show_panel.cpp"
 #include "core/hooks/scene_end.cpp"
 
@@ -1405,6 +1406,8 @@ bool initialize_game_runtime() {
 
   team_menu_show_panel_original = (void (*)(void*, bool))sigscan_module("client.so", sigs::team_menu_show_panel);
 
+  map_info_menu_show_panel_original = (void (*)(void*, bool))sigscan_module("client.so", sigs::map_info_menu_show_panel);
+
   text_window_show_panel_original = (void (*)(void*, bool))sigscan_module("client.so", sigs::text_window_show_panel);
 
   cl_move_original = (tickbase::cl_move_fn)sigscan_module("engine.so", sigs::cl_move);
@@ -1486,9 +1489,12 @@ bool initialize_game_runtime() {
 
   rv = funchook_prepare(funchook, (void**)&team_menu_show_panel_original, (void*)team_menu_show_panel_hook);
   error_assert(rv != 0, "Failed to prepare CTFTeamMenu::ShowPanel hook\n");
+  
+  rv = funchook_prepare(funchook, (void**)&map_info_menu_show_panel_original, (void*)map_info_menu_show_panel_hook);
+  error_assert(rv != 0, "Failed to prepare CTFMapInfoMenu::ShowPanel hook\n");
 
   rv = funchook_prepare(funchook, (void**)&text_window_show_panel_original, (void*)text_window_show_panel_hook);
-  error_assert(rv != 0, "Failed to prepare CTextWindow::ShowPanel hook\n");
+  error_assert(rv != 0, "Failed to prepare CTFTextWindow::ShowPanel hook\n");
 
   rv = funchook_prepare(funchook, (void**)&cl_move_original, (void*)cl_move_hook);
   error_assert(rv != 0, "Failed to prepare CL_Move hook\n");

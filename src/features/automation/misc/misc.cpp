@@ -2644,15 +2644,4 @@ void automation_controller::run_queueing()
   }
 }
 
-bool automation_controller::anti_motd_handle_show_panel()
-{
-  if (config.misc.automation.anti_motd != true)
-    return false;
-
-  if (config.misc.automation.anti_motd_dont_close_during_warmup && is_warmup_active())
-    return false;
-
-  return true;
-}
-
 } // namespace automation

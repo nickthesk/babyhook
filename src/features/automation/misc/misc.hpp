@@ -35,8 +35,6 @@ public:
 
   [[nodiscard]] bool is_warmup_active() const;
 
-  bool anti_motd_handle_show_panel();
-
 private:
   void apply_misc_convars();
   void run_auto_class_select();
