@@ -103,6 +103,7 @@ from html import escape, unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from urllib.parse import urlparse
 
 try:
     import requests
@@ -1285,8 +1286,18 @@ def get_random_name_from_file(steam_id=None):
 
 
 def parse_proxy(proxy_string):
-    """Parse proxy string in format host:port:username:password"""
     try:
+        if '://' in proxy_string:
+            parsed_proxy = urlparse(proxy_string)
+            if parsed_proxy.scheme not in ('http', 'https', 'socks4', 'socks4a', 'socks5', 'socks5h'):
+                return None
+            if not parsed_proxy.hostname or parsed_proxy.port is None:
+                return None
+            return {
+                'http': proxy_string,
+                'https': proxy_string
+            }
+
         parts = proxy_string.split(':')
         if len(parts) == 4:
             host, port, username, password = parts
@@ -1305,6 +1316,20 @@ def parse_proxy(proxy_string):
     return None
 
 
+def format_proxy_label(proxy_string):
+    try:
+        if '://' in proxy_string:
+            parsed_proxy = urlparse(proxy_string)
+            if parsed_proxy.hostname and parsed_proxy.port is not None:
+                return f'{parsed_proxy.hostname}:{parsed_proxy.port}'
+        parts = proxy_string.split(':')
+        if len(parts) >= 2:
+            return f'{parts[0]}:{parts[1]}'
+    except Exception as e:
+        debug(f'Failed to format proxy label: {proxy_string}, error: {e}')
+    return proxy_string
+
+
 def pick_proxy_for_account(used_proxy_indices):
     if not proxies:
         return None, None, None
@@ -1320,8 +1345,7 @@ def pick_proxy_for_account(used_proxy_indices):
     proxy_dict = parse_proxy(proxy_string)
 
     if proxy_dict:
-        host, port = proxy_string.split(':', 1)[:2]
-        safe_print(f'Using proxy #{proxy_index + 1}: {host}:{port}')
+        safe_print(f'Using proxy #{proxy_index + 1}: {format_proxy_label(proxy_string)}')
     else:
         safe_print(f'Failed to parse proxy: {proxy_string}')
 

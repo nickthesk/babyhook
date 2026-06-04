@@ -1,7 +1,7 @@
 steam[client]
 fastapi
 uvicorn
-requests
+requests[socks]
 beautifulsoup4
 playwright
 
