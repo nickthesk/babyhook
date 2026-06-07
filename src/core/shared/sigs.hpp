@@ -250,6 +250,8 @@ constexpr const char* bone_setup_attachment_matrices =
   "55 48 89 E5 41 57 41 56 41 55 4D 89 C5 41 54 4D 89 CC 53 48 89 FB 48 81 EC 18 10 00 00";
 constexpr const char* studio_render_draw_model_wrapper =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 18 03 00 00 4C 8D 25 ? ? ? ? 48 89 95";
+constexpr const char* studio_render_bone_transform =
+  "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC 48 44 8B B6 ? ? ? ? 41 83 E6 10 0F 85 ? ? ? ? 4C 63 BE ? ? ? ? 49 89 F4 89 D3 8B 8E ? ? ? ? 45 85 FF 0F 84 ? ? ? ? 49 01 F7";
 constexpr const char* client_econ_panel_flex_primary =
   "80 BF 08 1C 00 00 00 74 07 31 C0 C3 0F 1F 40 00 55 48 89 E5 41 57 41 56 4C 8D B7 98 15 00 00 41 55 41 54 49 89 FC";
 constexpr const char* client_econ_panel_flex_attachments =

@@ -77,6 +77,7 @@ constexpr int studio_render_draw_model_array_index = 46;
 constexpr int mdl_cache_touch_all_data_index = 17;
 constexpr int mdl_cache_touch_all_data_extra_index = 45;
 constexpr const char* client_module_name = "tf/bin/linux64/client.so";
+constexpr const char* studio_render_module_name = "studiorender.so";
 constexpr int engine_frame_busy_wait_usleep_delta = 0x1A;
 constexpr int engine_frame_usleep_call_offset = 0x56;
 constexpr int client_achievement_save_thread_start_call_offset = 0x2C1;
@@ -458,6 +459,7 @@ std::array<byte_patch, replay_ui_nullcheck_patch_count> replay_ui_nullcheck_patc
 std::array<byte_patch, character_info_command_patch_count> character_info_command_patches{};
 byte_patch econ_item_definition_index_patch{};
 byte_patch studio_render_draw_model_wrapper_patch{};
+byte_patch studio_render_bone_transform_patch{};
 byte_patch econ_panel_flex_primary_patch{};
 byte_patch econ_panel_flex_attachments_patch{};
 byte_patch ragdoll_lru_update_patch{};
@@ -1467,6 +1469,16 @@ bool initialize_extra_crashfix_patches()
     initialized_any_patch = true;
   }
 
+  if (initialize_optional_patch(studio_render_bone_transform_patch,
+                                studio_render_module_name,
+                                sigs::studio_render_bone_transform,
+                                0,
+                                { 0xC3 },
+                                "studio_render_bone_transform"))
+  {
+    initialized_any_patch = true;
+  }
+
   if (initialize_optional_patch(econ_panel_flex_primary_patch,
                                 client_module_name,
                                 sigs::client_econ_panel_flex_primary,
@@ -1499,6 +1511,7 @@ void restore_extra_crashfix_patches()
 
   econ_item_definition_index_patch.restore();
   studio_render_draw_model_wrapper_patch.restore();
+  studio_render_bone_transform_patch.restore();
   econ_panel_flex_primary_patch.restore();
   econ_panel_flex_attachments_patch.restore();
 }
@@ -1528,7 +1541,7 @@ bool initialize_render_patches()
     return render_patches_ready;
   }
 
-  if (!module_is_loaded(client_module_name))
+  if (!module_is_loaded(client_module_name) || !module_is_loaded(studio_render_module_name))
   {
     return false;
   }
@@ -1594,6 +1607,7 @@ void apply_render_patches()
     }
     ok = apply_render_patch_if_valid(econ_item_definition_index_patch, "econ_item_definition_index") && ok;
     ok = apply_render_patch_if_valid(studio_render_draw_model_wrapper_patch, "studio_render_draw_model_wrapper") && ok;
+    ok = apply_render_patch_if_valid(studio_render_bone_transform_patch, "studio_render_bone_transform") && ok;
     ok = apply_render_patch_if_valid(econ_panel_flex_primary_patch, "client_econ_panel_flex_primary") && ok;
     ok = apply_render_patch_if_valid(econ_panel_flex_attachments_patch, "client_econ_panel_flex_attachments") && ok;
   }
