@@ -1,16 +1,10 @@
 #include "config.hpp"
 
 #include <atomic>
-#include <cerrno>
 #include <cstring>
 #include <ctime>
 
 #include <dlfcn.h>
-#include <poll.h>
-#include <signal.h>
-#include <sys/epoll.h>
-#include <sys/select.h>
-#include <unistd.h>
 
 namespace cat_stm
 {
@@ -37,7 +31,6 @@ Fn next_symbol(Fn& slot, const char* name)
 }
 
 std::atomic<long long> g_last_present_ns{ 0 };
-std::atomic<int> g_is_steam_process{ -1 };
 
 long long monotonic_ns()
 {
@@ -86,60 +79,6 @@ bool path_base_matches(const char* path, const char* name)
   const char* slash = std::strrchr(path, '/');
   const char* base = slash ? slash + 1 : path;
   return std::strcmp(base, name) == 0;
-}
-
-bool current_process_is_steam()
-{
-  const int cached = g_is_steam_process.load(std::memory_order_relaxed);
-  if (cached >= 0)
-  {
-    return cached == 1;
-  }
-
-  char path[4096]{};
-  const ssize_t len = ::readlink("/proc/self/exe", path, sizeof(path) - 1);
-  const bool is_steam = len > 0 && path_base_matches(path, "steam");
-  g_is_steam_process.store(is_steam ? 1 : 0, std::memory_order_relaxed);
-  return is_steam;
-}
-
-void sleep_microseconds(int microseconds)
-{
-  if (microseconds <= 0)
-  {
-    return;
-  }
-
-  timespec remaining{};
-  remaining.tv_sec = microseconds / 1000000;
-  remaining.tv_nsec = static_cast<long>(microseconds % 1000000) * 1000L;
-  while (::nanosleep(&remaining, &remaining) == -1 && errno == EINTR)
-  {
-  }
-}
-
-bool should_sleep_steam_loop()
-{
-  const config& cfg = settings();
-  return !cfg.disabled && cfg.steam_loop_sleep && cfg.steam_loop_sleep_us > 0 && current_process_is_steam();
-}
-
-void sleep_steam_loop_if(bool condition)
-{
-  if (condition && should_sleep_steam_loop())
-  {
-    sleep_microseconds(settings().steam_loop_sleep_us);
-  }
-}
-
-bool timeval_is_zero(const timeval* timeout)
-{
-  return timeout != nullptr && timeout->tv_sec == 0 && timeout->tv_usec == 0;
-}
-
-bool timespec_is_zero(const timespec* timeout)
-{
-  return timeout != nullptr && timeout->tv_sec == 0 && timeout->tv_nsec == 0;
 }
 
 }
@@ -332,41 +271,6 @@ CAT_STM_EXPORT int snd_pcm_open(void** pcm, const char* name, int stream, int mo
   return next_symbol(real, "snd_pcm_open") != nullptr ? real(pcm, name, stream, mode) : -2;
 }
 
-CAT_STM_EXPORT int poll(pollfd* fds, nfds_t nfds, int timeout)
-{
-  static int (*real)(pollfd*, nfds_t, int) = nullptr;
-  sleep_steam_loop_if(timeout == 0);
-  return next_symbol(real, "poll") != nullptr ? real(fds, nfds, timeout) : -1;
-}
-
-CAT_STM_EXPORT int ppoll(pollfd* fds, nfds_t nfds, const timespec* timeout, const sigset_t* sigmask)
-{
-  static int (*real)(pollfd*, nfds_t, const timespec*, const sigset_t*) = nullptr;
-  sleep_steam_loop_if(timespec_is_zero(timeout));
-  return next_symbol(real, "ppoll") != nullptr ? real(fds, nfds, timeout, sigmask) : -1;
-}
-
-CAT_STM_EXPORT int select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, timeval* timeout)
-{
-  static int (*real)(int, fd_set*, fd_set*, fd_set*, timeval*) = nullptr;
-  sleep_steam_loop_if(timeval_is_zero(timeout));
-  return next_symbol(real, "select") != nullptr ? real(nfds, readfds, writefds, exceptfds, timeout) : -1;
-}
-
-CAT_STM_EXPORT int pselect(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, const timespec* timeout, const sigset_t* sigmask)
-{
-  static int (*real)(int, fd_set*, fd_set*, fd_set*, const timespec*, const sigset_t*) = nullptr;
-  sleep_steam_loop_if(timespec_is_zero(timeout));
-  return next_symbol(real, "pselect") != nullptr ? real(nfds, readfds, writefds, exceptfds, timeout, sigmask) : -1;
-}
-
-CAT_STM_EXPORT int epoll_wait(int epfd, epoll_event* events, int maxevents, int timeout)
-{
-  static int (*real)(int, epoll_event*, int, int) = nullptr;
-  sleep_steam_loop_if(timeout == 0);
-  return next_symbol(real, "epoll_wait") != nullptr ? real(epfd, events, maxevents, timeout) : -1;
-}
-
 namespace
 {
 __attribute__((constructor)) void cat_steamtxtmode_init()
@@ -381,8 +285,6 @@ __attribute__((constructor)) void cat_steamtxtmode_init()
   cfg.present_fps = env_int("CAT_STM_PRESENT_FPS", 0);
   cfg.webhelper_trim = env_flag("CAT_STM_WEBHELPER_TRIM", true);
   cfg.webhelper_single = env_flag("CAT_STM_WEBHELPER_SINGLE", false);
-  cfg.steam_loop_sleep = env_flag("CAT_STM_STEAM_LOOP_SLEEP", true);
-  cfg.steam_loop_sleep_us = env_int("CAT_STM_STEAM_LOOP_SLEEP_US", 5000);
 
   if (cfg.disabled)
   {
@@ -390,9 +292,9 @@ __attribute__((constructor)) void cat_steamtxtmode_init()
     return;
   }
 
-  log_line("loaded (%d-bit): trim=%d single=%d no_vsync=%d no_audio=%d no_present=%d patches=%d steam_loop_sleep=%d steam_loop_sleep_us=%d",
+  log_line("loaded (%d-bit): trim=%d single=%d no_vsync=%d no_audio=%d no_present=%d patches=%d",
            static_cast<int>(sizeof(void*) * 8), cfg.webhelper_trim, cfg.webhelper_single,
-           cfg.no_vsync, cfg.no_audio, cfg.no_present, cfg.patches, cfg.steam_loop_sleep, cfg.steam_loop_sleep_us);
+           cfg.no_vsync, cfg.no_audio, cfg.no_present, cfg.patches);
 
   if (cfg.patches)
   {

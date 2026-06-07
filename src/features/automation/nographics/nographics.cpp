@@ -77,20 +77,15 @@ constexpr int studio_render_draw_model_array_index = 46;
 constexpr int mdl_cache_touch_all_data_index = 17;
 constexpr int mdl_cache_touch_all_data_extra_index = 45;
 constexpr const char* client_module_name = "tf/bin/linux64/client.so";
+constexpr int engine_frame_busy_wait_usleep_delta = 0x1A;
 constexpr int engine_frame_usleep_call_offset = 0x56;
-constexpr int client_achievement_save_thread_start_call_offset = 0x2C1;
 constexpr int relative_jump_size = 5;
 constexpr int fs_async_err_fileopen = -1;
 
-bool env_flag_disabled(const char* name)
+bool sleep_pacing_patch_enabled()
 {
-  const char* value = std::getenv(name);
-  return value != nullptr && std::strcmp(value, "0") == 0;
-}
-
-bool tf2_textmode_cpu_patches_enabled()
-{
-  return !env_flag_disabled("CAT_NOGRAPHICS_TF2_CPU_PATCHES");
+  const char* value = std::getenv("CAT_NOGRAPHICS_SLEEP_PACING");
+  return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
 using find_first_fn = const char* (*)(void*, const char*, file_find_handle_t*);
@@ -201,7 +196,7 @@ bool engine_render_patches_initialized = false;
 bool materialsystem_render_patches_initialized = false;
 bool client_textmode_cpu_patches_initialized = false;
 std::atomic_bool startup_patch_running = false;
-std::array<convar_override, 55> nographics_convar_overrides{ {
+std::array<convar_override, 20> nographics_convar_overrides{ {
   { "mat_norendering", 0, nullptr, 0, false },
   { "mat_queue_mode", 0, nullptr, 0, false },
   { "engine_no_focus_sleep", 0, nullptr, 0, false },
@@ -222,41 +217,6 @@ std::array<convar_override, 55> nographics_convar_overrides{ {
   { "mat_specular", 0, nullptr, 0, false },
   { "mat_bumpmap", 0, nullptr, 0, false },
   { "mat_phong", 0, nullptr, 0, false },
-  { "mat_disable_fancy_blending", 1, nullptr, 0, false },
-  { "mat_disable_lightwarp", 1, nullptr, 0, false },
-  { "mat_filterlightmaps", 0, nullptr, 0, false },
-  { "mat_filtertextures", 0, nullptr, 0, false },
-  { "r_dynamic", 0, nullptr, 0, false },
-  { "r_maxdlights", 0, nullptr, 0, false },
-  { "r_shadowmaxrendered", 0, nullptr, 0, false },
-  { "r_decalstaticprops", 0, nullptr, 0, false },
-  { "r_drawbatchdecals", 0, nullptr, 0, false },
-  { "r_maxmodeldecal", 0, nullptr, 0, false },
-  { "r_propsmaxdist", 0, nullptr, 0, false },
-  { "r_eyes", 0, nullptr, 0, false },
-  { "r_eyemove", 0, nullptr, 0, false },
-  { "r_eyegloss", 0, nullptr, 0, false },
-  { "r_teeth", 0, nullptr, 0, false },
-  { "r_flex", 0, nullptr, 0, false },
-  { "r_drawtracers", 0, nullptr, 0, false },
-  { "r_drawtracers_firstperson", 0, nullptr, 0, false },
-  { "rope_smooth", 0, nullptr, 0, false },
-  { "rope_subdiv", 0, nullptr, 0, false },
-  { "rope_wind_dist", 0, nullptr, 0, false },
-  { "r_ropetranslucent", 0, nullptr, 0, false },
-  { "cl_ragdoll_physics_enable", 0, nullptr, 0, false },
-  { "cl_ragdoll_forcefade", 1, nullptr, 0, false },
-  { "cl_ragdoll_fade_time", 0, nullptr, 0, false },
-  { "g_ragdoll_maxcount", 0, nullptr, 0, false },
-  { "g_ragdoll_important_maxcount", 0, nullptr, 0, false },
-  { "cl_phys_props_max", 0, nullptr, 0, false },
-  { "props_break_max_pieces", 0, nullptr, 0, false },
-  { "props_break_max_pieces_perframe", 0, nullptr, 0, false },
-  { "tf_particles_disable_weather", 1, nullptr, 0, false },
-  { "cl_new_impact_effects", 0, nullptr, 0, false },
-  { "fx_drawimpactdebris", 0, nullptr, 0, false },
-  { "fx_drawimpactdust", 0, nullptr, 0, false },
-  { "fx_drawmetalspark", 0, nullptr, 0, false },
 } };
 
 #if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
@@ -415,19 +375,11 @@ byte_patch particle_precache_patch{};
 byte_patch particle_effect_create_patch{};
 byte_patch view_render_patch{};
 byte_patch replay_screenshot_patch{};
-byte_patch youtube_system_init_patch{};
-byte_patch replay_layoff_frame_patch{};
 byte_patch steam_rich_presence_patch{};
-byte_patch achievement_save_thread_start_patch{};
-byte_patch achievement_save_global_state_patch{};
-byte_patch tf_steam_stats_upload_stats_patch{};
-byte_patch achievement_progress_event_patch{};
-byte_patch abuse_report_notification_patch{};
-byte_patch abuse_incident_poll_patch{};
 byte_patch cl_decay_lights_patch{};
 byte_patch fps_max_min_patch{};
+byte_patch engine_frame_busy_wait_patch{};
 byte_patch engine_frame_usleep_patch{};
-byte_patch engine_client_process_voice_data_patch{};
 byte_patch mod_load_lighting_patch{};
 byte_patch mod_load_worldlights_patch{};
 byte_patch mod_load_texinfo_material_branch_patch{};
@@ -1153,9 +1105,9 @@ void initialize_engine_render_patches()
   initialize_optional_patch(video_mode_setup_startup_graphic_patch, "engine.so", sigs::video_mode_setup_startup_graphic, 0, { 0xC3 }, "video_mode_setup_startup_graphic");
   initialize_optional_patch(cl_decay_lights_patch, "engine.so", sigs::cl_decay_lights, 0, { 0xC3 }, "cl_decay_lights");
   initialize_optional_patch(fps_max_min_patch, "engine.so", sigs::engine_fps_max_min_clamp, 7, { 0x90, 0xE9 }, "engine_fps_max_min_clamp");
-  if (tf2_textmode_cpu_patches_enabled())
+  if (sleep_pacing_patch_enabled())
   {
-    initialize_optional_patch(engine_client_process_voice_data_patch, "engine.so", sigs::engine_client_process_voice_data, 0, { 0xB0, 0x01, 0xC3 }, "engine_client_process_voice_data");
+    initialize_relative_jump_patch(engine_frame_busy_wait_patch, "engine.so", sigs::engine_frame_busy_wait, engine_frame_busy_wait_usleep_delta, 5, "engine_frame_busy_wait");
   }
   initialize_optional_patch(engine_frame_usleep_patch, "engine.so", sigs::engine_frame_busy_wait, engine_frame_usleep_call_offset, { 0x90, 0x90, 0x90, 0x90, 0x90 }, "engine_frame_usleep");
   initialize_optional_patch(mod_load_lighting_patch, "engine.so", sigs::mod_load_lighting, 0, { 0x31, 0xC0, 0xC3 }, "mod_load_lighting");
@@ -1198,21 +1150,7 @@ void initialize_client_textmode_cpu_patches()
     return;
   }
 
-  if (!tf2_textmode_cpu_patches_enabled())
-  {
-    client_textmode_cpu_patches_initialized = true;
-    return;
-  }
-
   bool initialized_any_patch = false;
-  initialized_any_patch = initialize_optional_patch(youtube_system_init_patch, client_module_name, sigs::client_youtube_system_init, 0, { 0x31, 0xC0, 0xC3 }, "client_youtube_system_init") || initialized_any_patch;
-  initialized_any_patch = initialize_optional_patch(replay_layoff_frame_patch, client_module_name, sigs::client_replay_layoff_frame, 0, { 0x31, 0xC0, 0xC3 }, "client_replay_layoff_frame") || initialized_any_patch;
-  initialized_any_patch = initialize_optional_patch(achievement_save_thread_start_patch, client_module_name, sigs::client_achievement_mgr_post_init, client_achievement_save_thread_start_call_offset, { 0x90, 0x90, 0x90, 0x90, 0x90 }, "client_achievement_save_thread_start") || initialized_any_patch;
-  initialized_any_patch = initialize_optional_patch(achievement_save_global_state_patch, client_module_name, sigs::client_achievement_save_global_state, 0, { 0xC6, 0x87, 0x84, 0x02, 0x00, 0x00, 0x00, 0xC3 }, "client_achievement_save_global_state") || initialized_any_patch;
-  initialized_any_patch = initialize_optional_patch(tf_steam_stats_upload_stats_patch, client_module_name, sigs::client_tf_steam_stats_upload_stats, 0, { 0xC7, 0x47, 0x24, 0x00, 0x00, 0x00, 0x4F, 0xC3 }, "client_tf_steam_stats_upload_stats") || initialized_any_patch;
-  initialized_any_patch = initialize_optional_patch(achievement_progress_event_patch, client_module_name, sigs::client_achievement_progress_event, 0, { 0xC3 }, "client_achievement_progress_event") || initialized_any_patch;
-  initialized_any_patch = initialize_optional_patch(abuse_report_notification_patch, client_module_name, sigs::client_abuse_report_notification, 0, { 0xC3 }, "client_abuse_report_notification") || initialized_any_patch;
-  initialized_any_patch = initialize_optional_patch(abuse_incident_poll_patch, client_module_name, sigs::client_abuse_incident_poll, 0, { 0xB0, 0x01, 0xC3 }, "client_abuse_incident_poll") || initialized_any_patch;
   initialized_any_patch = initialize_optional_patch(ragdoll_lru_update_patch, client_module_name, sigs::client_ragdoll_lru_update, 0, { 0xC3 }, "client_ragdoll_lru_update") || initialized_any_patch;
   initialized_any_patch = initialize_optional_patch(particle_mgr_simulate_undrawn_patch, client_module_name, sigs::client_particle_mgr_simulate_undrawn, 0, { 0xC3 }, "client_particle_mgr_simulate_undrawn") || initialized_any_patch;
   initialized_any_patch = initialize_optional_patch(temp_ents_update_patch, client_module_name, sigs::client_temp_ents_update, 0, { 0xC3 }, "client_temp_ents_update") || initialized_any_patch;
@@ -1235,8 +1173,8 @@ void restore_optional_render_patches()
   video_mode_setup_startup_graphic_patch.restore();
   cl_decay_lights_patch.restore();
   fps_max_min_patch.restore();
+  engine_frame_busy_wait_patch.restore();
   engine_frame_usleep_patch.restore();
-  engine_client_process_voice_data_patch.restore();
   mod_load_lighting_patch.restore();
   mod_load_worldlights_patch.restore();
   mod_load_texinfo_material_branch_patch.restore();
@@ -1252,14 +1190,6 @@ void restore_optional_render_patches()
   v_render_view_patch.restore();
   material_system_begin_frame_patch.restore();
   material_system_swap_buffers_patch.restore();
-  youtube_system_init_patch.restore();
-  replay_layoff_frame_patch.restore();
-  achievement_save_thread_start_patch.restore();
-  achievement_save_global_state_patch.restore();
-  tf_steam_stats_upload_stats_patch.restore();
-  achievement_progress_event_patch.restore();
-  abuse_report_notification_patch.restore();
-  abuse_incident_poll_patch.restore();
   ragdoll_lru_update_patch.restore();
   particle_mgr_simulate_undrawn_patch.restore();
   temp_ents_update_patch.restore();
@@ -1294,7 +1224,7 @@ bool apply_optional_render_patches()
   applied_any_patch = apply_optional_patch(video_mode_setup_startup_graphic_patch, "video_mode_setup_startup_graphic") || applied_any_patch;
   applied_any_patch = apply_optional_patch(cl_decay_lights_patch, "cl_decay_lights") || applied_any_patch;
   applied_any_patch = apply_optional_patch(fps_max_min_patch, "engine_fps_max_min_clamp") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(engine_client_process_voice_data_patch, "engine_client_process_voice_data") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(engine_frame_busy_wait_patch, "engine_frame_busy_wait") || applied_any_patch;
   if (config.misc.exploits.no_engine_sleep)
   {
     applied_any_patch = apply_optional_patch(engine_frame_usleep_patch, "engine_frame_usleep") || applied_any_patch;
@@ -1318,14 +1248,6 @@ bool apply_optional_render_patches()
   applied_any_patch = apply_optional_patch(v_render_view_patch, "v_render_view") || applied_any_patch;
   applied_any_patch = apply_optional_patch(material_system_begin_frame_patch, "material_system_begin_frame") || applied_any_patch;
   applied_any_patch = apply_optional_patch(material_system_swap_buffers_patch, "material_system_swap_buffers") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(youtube_system_init_patch, "client_youtube_system_init") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(replay_layoff_frame_patch, "client_replay_layoff_frame") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(achievement_save_thread_start_patch, "client_achievement_save_thread_start") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(achievement_save_global_state_patch, "client_achievement_save_global_state") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(tf_steam_stats_upload_stats_patch, "client_tf_steam_stats_upload_stats") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(achievement_progress_event_patch, "client_achievement_progress_event") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(abuse_report_notification_patch, "client_abuse_report_notification") || applied_any_patch;
-  applied_any_patch = apply_optional_patch(abuse_incident_poll_patch, "client_abuse_incident_poll") || applied_any_patch;
   applied_any_patch = apply_optional_patch(ragdoll_lru_update_patch, "client_ragdoll_lru_update") || applied_any_patch;
   applied_any_patch = apply_optional_patch(particle_mgr_simulate_undrawn_patch, "client_particle_mgr_simulate_undrawn") || applied_any_patch;
   applied_any_patch = apply_optional_patch(temp_ents_update_patch, "client_temp_ents_update") || applied_any_patch;

@@ -20,8 +20,6 @@ struct config
   int present_fps = 0;
   bool webhelper_trim = true;
   bool webhelper_single = false;
-  bool steam_loop_sleep = true;
-  int steam_loop_sleep_us = 5000;
 };
 
 inline config& settings()
