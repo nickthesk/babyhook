@@ -104,33 +104,33 @@ inline void use_view_size(const view_setup& view, float* width, float* height)
     return false;
   }
 
-  if (!state.matrix_valid) {
-    auto local_view = view_setup{};
-    if (!client->get_player_view(local_view)) {
-      return false;
-    }
-
-    VMatrix world_to_screen{};
-    VMatrix view_to_projection{};
-    VMatrix world_to_projection{};
-    VMatrix world_to_pixels{};
-    render_view->get_matrices_for_view(
-      local_view,
-      &world_to_screen,
-      &view_to_projection,
-      &world_to_projection,
-      &world_to_pixels);
-    for (int row = 0; row < 4; ++row) {
-      for (int column = 0; column < 4; ++column) {
-        state.world_to_projection[row][column] = world_to_projection[row][column];
-      }
-    }
-
-    state.matrix_valid = true;
+  auto matrix_view = view_setup{};
+  if (!client->get_player_view(matrix_view)) {
+    state.matrix_valid = false;
+    return false;
   }
+
+  VMatrix world_to_screen{};
+  VMatrix view_to_projection{};
+  VMatrix world_to_projection{};
+  VMatrix world_to_pixels{};
+  render_view->get_matrices_for_view(
+    matrix_view,
+    &world_to_screen,
+    &view_to_projection,
+    &world_to_projection,
+    &world_to_pixels);
+  for (int row = 0; row < 4; ++row) {
+    for (int column = 0; column < 4; ++column) {
+      state.world_to_projection[row][column] = world_to_projection[row][column];
+    }
+  }
+
+  state.matrix_valid = true;
 
   auto local_view = view_setup{};
   if (!client->get_player_view(local_view)) {
+    state.matrix_valid = false;
     return false;
   }
 

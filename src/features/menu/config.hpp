@@ -469,6 +469,7 @@ struct Visuals {
 
   bool override_viewmodel_fov = false;
   float custom_viewmodel_fov = 70;
+  bool esp_lerp = false;
 };
 
 struct Misc {

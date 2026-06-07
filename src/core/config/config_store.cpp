@@ -343,6 +343,7 @@ void config_store::import_config(const Config& config)
     set_float("visuals.custom_fov", config.visuals.custom_fov);
     set_bool("visuals.override_viewmodel_fov", config.visuals.override_viewmodel_fov);
     set_float("visuals.custom_viewmodel_fov", config.visuals.custom_viewmodel_fov);
+    set_bool("visuals.esp_lerp", config.visuals.esp_lerp);
 
     set_bool("misc.movement.bhop", config.misc.movement.bhop);
     set_int("misc.movement.auto_strafe", static_cast<int>(config.misc.movement.auto_strafe));
@@ -768,6 +769,7 @@ void config_store::export_config(Config& config) const
     config.visuals.custom_fov = get_float("visuals.custom_fov", config.visuals.custom_fov);
     config.visuals.override_viewmodel_fov = get_bool("visuals.override_viewmodel_fov", config.visuals.override_viewmodel_fov);
     config.visuals.custom_viewmodel_fov = get_float("visuals.custom_viewmodel_fov", config.visuals.custom_viewmodel_fov);
+    config.visuals.esp_lerp = get_bool("visuals.esp_lerp", config.visuals.esp_lerp);
 
     config.misc.movement.bhop = get_bool("misc.movement.bhop", config.misc.movement.bhop);
     config.misc.movement.auto_strafe = static_cast<Misc::Movement::auto_strafe_mode>(std::clamp(

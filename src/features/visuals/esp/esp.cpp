@@ -74,6 +74,10 @@ constexpr float cathook_head_emoji_cache_interval = 0.05f;
 constexpr float cathook_head_emoji_manual_cache_interval = 0.15f;
 constexpr float esp_bounds_max_screen_scale = 1.35f;
 constexpr float esp_bounds_offscreen_margin_scale = 0.50f;
+constexpr std::size_t esp_bounds_min_projected_points = 2;
+constexpr float esp_bounds_fallback_width_scale = 0.45f;
+constexpr float esp_bounds_fallback_min_width = 6.0f;
+constexpr float esp_bounds_fallback_min_height = 8.0f;
 constexpr float esp_smoothing_snap_distance = 180.0f;
 constexpr float esp_smoothing_snap_scale = 1.75f;
 constexpr unsigned int esp_smoothing_stale_frames = 2;
@@ -181,10 +185,12 @@ enum class esp_smoothing_point
 struct esp_smoothing_state
 {
   esp_bounds bounds{};
+  esp_bounds projected_bounds{};
   ImVec2 origin_screen{};
   ImVec2 head_screen{};
   std::array<ImVec2, 8> projected_points{};
   bool bounds_valid = false;
+  bool projected_bounds_valid = false;
   bool origin_screen_valid = false;
   bool head_screen_valid = false;
   bool projected_points_valid = false;
@@ -201,7 +207,7 @@ bool g_esp_was_in_game = false;
 
 [[nodiscard]] bool esp_lerp_enabled()
 {
-  return true;
+  return config.visuals.esp_lerp;
 }
 
 [[nodiscard]] float esp_lerp_speed()
@@ -460,12 +466,12 @@ void smooth_projected_box(Entity* entity, projected_box* box)
   state.last_seen_frame = g_esp_smoothing_frame;
 
   const auto amount = esp_lerp_amount();
-  if (!state.projected_points_valid || amount >= 1.0f || should_snap_bounds(state.bounds, box->bounds)) {
+  if (!state.projected_points_valid || !state.projected_bounds_valid || amount >= 1.0f || should_snap_bounds(state.projected_bounds, box->bounds)) {
     for (size_t index = 0; index < box->screen_points.size(); ++index) {
       state.projected_points[index] = ImVec2(box->screen_points[index].x, box->screen_points[index].y);
     }
-    state.bounds = box->bounds;
-    state.bounds_valid = true;
+    state.projected_bounds = box->bounds;
+    state.projected_bounds_valid = true;
     state.projected_points_valid = true;
     return;
   }
@@ -486,8 +492,8 @@ void smooth_projected_box(Entity* entity, projected_box* box)
   }
 
   box->bounds = esp_bounds{.min_x = min_x, .min_y = min_y, .max_x = max_x, .max_y = max_y};
-  state.bounds = box->bounds;
-  state.bounds_valid = true;
+  state.projected_bounds = box->bounds;
+  state.projected_bounds_valid = true;
 }
 
 [[nodiscard]] bool get_stable_entity_screen_bounds(Entity* entity, esp_bounds* bounds)
@@ -714,6 +720,102 @@ void reset_head_emoji_texture()
   return entity->get_collision_origin();
 }
 
+[[nodiscard]] esp_bounds empty_screen_bounds()
+{
+  return esp_bounds{
+    .min_x = std::numeric_limits<float>::max(),
+    .min_y = std::numeric_limits<float>::max(),
+    .max_x = std::numeric_limits<float>::lowest(),
+    .max_y = std::numeric_limits<float>::lowest()
+  };
+}
+
+[[nodiscard]] bool add_projected_screen_point(const Vec3& projected, esp_bounds* bounds)
+{
+  if (bounds == nullptr || !std::isfinite(projected.x) || !std::isfinite(projected.y)) {
+    return false;
+  }
+
+  bounds->min_x = std::min(bounds->min_x, projected.x);
+  bounds->min_y = std::min(bounds->min_y, projected.y);
+  bounds->max_x = std::max(bounds->max_x, projected.x);
+  bounds->max_y = std::max(bounds->max_y, projected.y);
+  return true;
+}
+
+[[nodiscard]] bool project_world_points_to_screen_bounds(const std::array<Vec3, 8>& world_points, esp_bounds* bounds)
+{
+  if (bounds == nullptr) {
+    return false;
+  }
+
+  esp_bounds current_bounds = empty_screen_bounds();
+  std::size_t projected_count = 0;
+  for (const Vec3& point : world_points) {
+    Vec3 projected{};
+    if (overlay_projection::world_to_screen(point, &projected) && add_projected_screen_point(projected, &current_bounds)) {
+      ++projected_count;
+    }
+  }
+
+  if (projected_count < esp_bounds_min_projected_points || !is_reasonable_screen_bounds(current_bounds)) {
+    return false;
+  }
+
+  *bounds = current_bounds;
+  return true;
+}
+
+[[nodiscard]] bool get_entity_centerline_screen_bounds(Entity* entity, esp_bounds* bounds)
+{
+  if (entity == nullptr || bounds == nullptr) {
+    return false;
+  }
+
+  const Vec3 origin = get_esp_draw_origin(entity);
+  const Vec3 mins = entity->get_collideable_mins();
+  const Vec3 maxs = entity->get_collideable_maxs();
+  const Vec3 bottom_world = origin + Vec3{0.0f, 0.0f, mins.z};
+  const Vec3 top_world = origin + Vec3{0.0f, 0.0f, maxs.z};
+
+  Vec3 bottom_screen{};
+  Vec3 top_screen{};
+  if (!overlay_projection::world_to_screen(bottom_world, &bottom_screen) ||
+      !overlay_projection::world_to_screen(top_world, &top_screen) ||
+      !std::isfinite(bottom_screen.x) ||
+      !std::isfinite(bottom_screen.y) ||
+      !std::isfinite(top_screen.x) ||
+      !std::isfinite(top_screen.y)) {
+    return false;
+  }
+
+  float min_y = std::min(bottom_screen.y, top_screen.y);
+  float max_y = std::max(bottom_screen.y, top_screen.y);
+  float height = max_y - min_y;
+  if (height < esp_bounds_fallback_min_height) {
+    const float center_y = (min_y + max_y) * 0.5f;
+    height = esp_bounds_fallback_min_height;
+    min_y = center_y - (height * 0.5f);
+    max_y = center_y + (height * 0.5f);
+  }
+
+  const float width = std::max(esp_bounds_fallback_min_width, height * esp_bounds_fallback_width_scale);
+  const float center_x = (bottom_screen.x + top_screen.x) * 0.5f;
+  const esp_bounds current_bounds{
+    .min_x = center_x - (width * 0.5f),
+    .min_y = min_y,
+    .max_x = center_x + (width * 0.5f),
+    .max_y = max_y
+  };
+
+  if (!is_reasonable_screen_bounds(current_bounds)) {
+    return false;
+  }
+
+  *bounds = current_bounds;
+  return true;
+}
+
 [[nodiscard]] Entity* get_player_resource_entity()
 {
   if (entity_list == nullptr) {
@@ -927,34 +1029,11 @@ void draw_atlas_tile(
     origin + Vec3{mins.x, maxs.y, maxs.z},
   };
 
-  float min_x = std::numeric_limits<float>::max();
-  float min_y = std::numeric_limits<float>::max();
-  float max_x = std::numeric_limits<float>::lowest();
-  float max_y = std::numeric_limits<float>::lowest();
-  for (const auto& point : world_points) {
-    auto projected = Vec3{};
-    if (!overlay_projection::world_to_screen(point, &projected)) {
-      return false;
-    }
-
-    min_x = std::min(min_x, projected.x);
-    min_y = std::min(min_y, projected.y);
-    max_x = std::max(max_x, projected.x);
-    max_y = std::max(max_y, projected.y);
+  if (project_world_points_to_screen_bounds(world_points, bounds)) {
+    return true;
   }
 
-  const auto current_bounds = esp_bounds{
-    .min_x = min_x,
-    .min_y = min_y,
-    .max_x = max_x,
-    .max_y = max_y
-  };
-  if (!is_reasonable_screen_bounds(current_bounds)) {
-    return false;
-  }
-
-  *bounds = current_bounds;
-  return true;
+  return get_entity_centerline_screen_bounds(entity, bounds);
 }
 
 [[nodiscard]] bool get_entity_projected_box(Entity* entity, projected_box* box)

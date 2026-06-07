@@ -1727,6 +1727,7 @@ static void draw_visuals_world_content() {
     cat_menu::slider_float("Custom FOV", &config.visuals.custom_fov, 30.1f, 150.0f, "%.0f deg");
     cat_menu::checkbox("Override viewmodel FOV", &config.visuals.override_viewmodel_fov);
     cat_menu::slider_float("Viewmodel FOV", &config.visuals.custom_viewmodel_fov, 30.1f, 150.0f, "%.0f deg");
+    cat_menu::checkbox("ESP lerp", &config.visuals.esp_lerp);
   });
   cat_menu::flow_panel("Removals", 1, 80.0f, [&]() {
     cat_menu::checkbox("Remove scope", &config.visuals.removals.scope);
