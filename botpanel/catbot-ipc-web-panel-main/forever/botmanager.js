@@ -19,6 +19,7 @@ class BotManager {
         this.updateTimeout = null;
         this.query_in_progress = false;
         this.stopping = false;
+        this.recover_existing_until = 0;
         this.list_json = '{"quota":0,"count":0,"bots":{}}';
         this.state_json = '{"bots":{}}';
         this.schedule_update(1000);
@@ -101,6 +102,13 @@ class BotManager {
             this.wanted_quota = this.bots.length;
         }
 
+        if (!this.quota && !this.bots.length) {
+            this.rebuild_snapshots();
+            if (!this.stopping)
+                self.schedule_update(5000);
+            return;
+        }
+
         const process_table = Bot.read_process_table();
         const children_by_parent = Bot.build_process_children_by_parent(process_table);
         for (var i = self.bots.length - 1; i >= 0; i--) {
@@ -122,6 +130,12 @@ class BotManager {
                 }
             }
             try {
+                if (this.recover_existing_until && Date.now() < this.recover_existing_until && !b.procFirejailSteam && !b.procFirejailGame) {
+                    b.adopt_runtime_processes(process_table, children_by_parent);
+                    if (!b.procFirejailSteam && !b.procFirejailGame)
+                        continue;
+                }
+
                 b.update(process_table, children_by_parent);
             } catch (error) {
                 this.stop_failed_bot(b, 'bot update failed', error);
@@ -133,7 +147,7 @@ class BotManager {
             this.log_exception('ban tracker update failed', error);
         }
 
-        if (!this.stopping && !this.query_in_progress) {
+        if (!this.stopping && self.bots.length && !this.query_in_progress) {
             this.query_in_progress = true;
             try {
                 self.cc.command('query', {}, function (data) {
@@ -232,6 +246,7 @@ class BotManager {
         }
         this.wanted_quota = quota;
         this.quota = quota;
+        this.recover_existing_until = Date.now() + 30000;
         this.enforceQuota();
         this.rebuild_snapshots();
         this.schedule_update(0);

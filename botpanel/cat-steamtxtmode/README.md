@@ -33,4 +33,6 @@ Environment:
 | `CAT_STM_NO_PRESENT` | `1` | drop buffer swaps |
 | `CAT_STM_PRESENT_FPS` | `0` | rate-limit swaps instead of dropping all |
 | `CAT_STM_PATCHES` | `1` | apply signature patches |
+| `CAT_STM_STEAM_LOOP_SLEEP` | `1` | sleep before zero-timeout waits in the `steam` executable |
+| `CAT_STM_STEAM_LOOP_SLEEP_US` | `5000` | microseconds to sleep for Steam zero-timeout waits |
 | `CAT_STM_LOG` | `1` | write shim logs to stderr |

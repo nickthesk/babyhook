@@ -1173,23 +1173,24 @@ configure_steam_txtmode_preload() {
 
     local soname="libcatsteamtxtmode.so"
     local library_path
-    library_path="$(ldconfig -p 2>/dev/null | awk -v soname="$soname" '$1 == soname && $0 ~ /x86-64/ { print $NF; exit }')"
-    if [ -z "$library_path" ]; then
-        library_path="$(ldconfig -p 2>/dev/null | awk -v soname="$soname" '$1 == soname { print $NF; exit }')"
-    fi
+    library_path="$(ldconfig -p 2>/dev/null | awk -v soname="$soname" '$1 == soname { print $NF; exit }')"
     if [ -z "$library_path" ] || [ ! -f "$library_path" ]; then
         return
     fi
 
+    local existing_preload="${STEAM_LD_PRELOAD:-}"
+    local entry
+    local rebuilt_preload="$soname"
     if [ -n "${STEAM_LD_PRELOAD:-}" ]; then
-        case ":$STEAM_LD_PRELOAD:" in
-            *":$library_path:"*) ;;
-            *":$soname:"*) STEAM_LD_PRELOAD="${STEAM_LD_PRELOAD//$soname/$library_path}" ;;
-            *) STEAM_LD_PRELOAD="$library_path:$STEAM_LD_PRELOAD" ;;
-        esac
-    else
-        STEAM_LD_PRELOAD="$library_path"
+        IFS=':' read -r -a preload_entries <<< "$existing_preload"
+        for entry in "${preload_entries[@]}"; do
+            if [ -z "$entry" ] || [ "${entry##*/}" = "$soname" ]; then
+                continue
+            fi
+            rebuilt_preload="$rebuilt_preload:$entry"
+        done
     fi
+    STEAM_LD_PRELOAD="$rebuilt_preload"
     export STEAM_LD_PRELOAD
     echo "Steam headless shim enabled: STEAM_LD_PRELOAD=$STEAM_LD_PRELOAD"
 }

@@ -39,6 +39,9 @@ const steam_window_options_default = VISIBLE_WINDOWS
       + ' -cef-disable-breakpad -cef-disable-logging -cef-disable-js-logging -cef-disable-hevc'
       + ' -disablehighdpi -nominidumps -nobreakpad -skipstreamingdrivers';
 const steam_window_options = process.env.CAT_STEAM_WINDOW_OPTIONS || steam_window_options_default;
+const steam_shim_loop_sleep = process.env.CAT_STM_STEAM_LOOP_SLEEP === '0' ? '0' : '1';
+const steam_shim_loop_sleep_us_value = Number.parseInt(process.env.CAT_STM_STEAM_LOOP_SLEEP_US || '5000', 10);
+const steam_shim_loop_sleep_us = Number.isSafeInteger(steam_shim_loop_sleep_us_value) && steam_shim_loop_sleep_us_value > 0 ? steam_shim_loop_sleep_us_value : 5000;
 const game_window_options_default = VISIBLE_WINDOWS
     ? '-gl -sw -w 1280 -h 720'
     : (TEXTMODE_GAME ? '-silent -sw -w 1 -h 480' : '-gl -silent -sw -w 1 -h 480');
@@ -85,7 +88,7 @@ function game_port_options(botid) {
     return `-tv_port ${tv_port} +tv_port ${tv_port} -port ${bot_port_base} +port ${bot_port_base} +clientport ${client_port_min}-${client_port_max}`;
 }
 
-const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --private-dev --read-write=/opt/cathook/ipc --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
+const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --private-dev --read-write=/opt/cathook/ipc --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% --env=CAT_STM_STEAM_LOOP_SLEEP=%CAT_STM_STEAM_LOOP_SLEEP% --env=CAT_STM_STEAM_LOOP_SLEEP_US=%CAT_STM_STEAM_LOOP_SLEEP_US% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --private-dev --read-write=/opt/cathook/ipc --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
 const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync +volume 0 -noqueuedpacketprocessing -limitvsconst -nocrashdialog -noipx -threads 1 %GAME_PORT_OPTIONS% -nosteamcontroller -low -insecure +fps_max 30'`
 const LAUNCH_OPTIONS_GAME_STEAM = `firejail --join=%JAILNAME% bash -c '${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %STEAM% -applaunch 440'`
@@ -491,6 +494,14 @@ function preload_value(primary_library) {
     return extra_preload ? `${primary_library}:${extra_preload}` : primary_library;
 }
 
+function steam_preload_value() {
+    const library_name = 'libcatsteamtxtmode.so';
+    const extra_preload = (process.env.STEAM_LD_PRELOAD || '')
+        .split(':')
+        .filter((entry) => entry && path.basename(entry) !== library_name);
+    return [library_name, ...extra_preload].join(':');
+}
+
 function cathook_textmode_library() {
     const candidates = [
         path.join(CATHOOK_ROOT, 'bin/libcathooktextmode.so'),
@@ -757,6 +768,15 @@ function add_process_pids_to_map(process_map, info, value) {
         process_map.set(pid, value);
 }
 
+function adopted_process(pid) {
+    return {
+        pid: pid,
+        kill: function(signal) {
+            process.kill(pid, signal);
+        }
+    };
+}
+
 function collect_descendant_pids(root_pid, processes) {
     return collect_descendant_pids_from_children(root_pid, build_process_children_by_parent(processes));
 }
@@ -783,6 +803,26 @@ function collect_descendant_pids_from_children(root_pid, children_by_parent) {
     }
 
     return descendants;
+}
+
+function firejail_command_has_marker(command, option, value) {
+    const marker_pattern = new RegExp(`(^|\\s)${escape_regex(`${option}=${value}`)}(?=\\s|$)`);
+    return marker_pattern.test(command);
+}
+
+function find_firejail_root_by_marker(processes, option, value) {
+    const candidates = [];
+    for (const info of processes.values()) {
+        const command = info.cmdline || '';
+        if (info.comm === 'firejail' && firejail_command_has_marker(command, option, value))
+            candidates.push(info);
+    }
+
+    const candidate_pids = new Set(candidates.map((info) => info.pid));
+    const roots = candidates.filter((info) => !candidate_pids.has(info.ppid));
+    const result = roots.length ? roots : candidates;
+    result.sort((left, right) => (left.starttime - right.starttime) || (left.pid - right.pid));
+    return result[0] || null;
 }
 
 function kill_process_tree(root_pid, signal) {
@@ -2159,6 +2199,9 @@ class Bot extends EventEmitter {
     }
 
     markSteamReady(preferredSteamPath) {
+        if (!this.ensure_account_loaded())
+            return false;
+
         const candidates = unique_paths([preferredSteamPath, ...this.steamInstallCandidates()]);
         const steam_path = candidates.find(steam_root_ready)
             || candidates.find((candidate) => candidate && fs.existsSync(candidate))
@@ -2342,6 +2385,8 @@ class Bot extends EventEmitter {
             self.log('[ERROR] Steam is already running!');
             return false;
         }
+        if (!self.ensure_account_loaded())
+            return false;
 
         if (!fs.existsSync(self.home)) {
             fs.mkdirSync(self.home);
@@ -2377,7 +2422,9 @@ class Bot extends EventEmitter {
             // Name of the firejail jail
             .replace("%JAILNAME%", shell_quote(self.name))
             .replace("%STEAM_LD_LIBRARY_PATH%", shell_quote(process.env.LD_LIBRARY_PATH || ''))
-            .replace("%LD_PRELOAD%", shell_quote(process.env.STEAM_LD_PRELOAD || ''))
+            .replace("%LD_PRELOAD%", shell_quote(steam_preload_value()))
+            .replace("%CAT_STM_STEAM_LOOP_SLEEP%", shell_quote(steam_shim_loop_sleep))
+            .replace("%CAT_STM_STEAM_LOOP_SLEEP_US%", shell_quote(String(steam_shim_loop_sleep_us)))
             // XOrg Display
             .replace("%DISPLAY%", shell_quote(display_value))
             .replace("%XAUTHORITY%", shell_quote(xauthority_path))
@@ -2503,6 +2550,8 @@ class Bot extends EventEmitter {
 
     spawnGame() {
         var self = this;
+        if (!self.ensure_account_loaded())
+            return false;
 
         var filename = path.join(this.home, `.gl${makeid(6)}`);
         const source_library = cathook_game_library();
@@ -3102,6 +3151,76 @@ class Bot extends EventEmitter {
         return candidates[0] || null;
     }
 
+    ensure_account_loaded() {
+        if (this.account)
+            return true;
+
+        this.account = accounts.get(this.botid, this.account_generation);
+        if (!this.account) {
+            this.state = STATE.NO_ACCOUNT;
+            this.shouldRun = false;
+            this.shouldRestart = false;
+            return false;
+        }
+        if (this.state == STATE.NO_ACCOUNT)
+            this.state = STATE.INITIALIZED;
+        return true;
+    }
+
+    adopt_runtime_processes(processes, children_by_parent) {
+        processes = process_table_or_current(processes);
+        children_by_parent = children_by_parent || build_process_children_by_parent(processes);
+
+        const steam_root = this.procFirejailSteam || find_firejail_root_by_marker(processes, '--name', this.name);
+        const game_root = this.procFirejailGame || find_firejail_root_by_marker(processes, '--join', this.name);
+        if (!steam_root && !game_root)
+            return false;
+
+        if (steam_root && !this.procFirejailSteam) {
+            if (!this.ensure_account_loaded())
+                return false;
+
+            this.procFirejailSteam = adopted_process(steam_root.pid);
+            this.time_steamWorking = 0;
+            this.time_steam_launch_started = 0;
+            this.time_steam_login_timeout_started = 0;
+            this.time_steamAssumeReady = 0;
+            this.time_steamStatusLog = 0;
+            if (game_root) {
+                this.isSteamWorking = true;
+                this.steamClientInitialized = true;
+            } else {
+                this.isSteamWorking = false;
+                this.steamClientInitialized = false;
+                this.prepareSteamInstall();
+            }
+            this.log(`Adopted Steam runtime (${steam_root.pid})`);
+        }
+
+        if (game_root && !this.procFirejailGame) {
+            this.procFirejailGame = adopted_process(game_root.pid);
+            const game_process = this.findGameProcess(processes, children_by_parent);
+            if (game_process) {
+                this.gamePid = game_process.pid;
+                this.startTime = game_process.starttime;
+            }
+            this.time_gameCheck = 0;
+            this.time_ipcState = 0;
+            this.gameStarted = Date.now();
+            this.log(`Adopted game runtime (${game_root.pid})`);
+        }
+
+        if (this.procFirejailGame) {
+            this.state = STATE.RUNNING;
+        } else if (this.procFirejailSteam) {
+            this.state = STATE.STARTING;
+        }
+
+        this.shouldRun = true;
+        this.shouldRestart = false;
+        return true;
+    }
+
     owns_process_pid(pid, processes, children_by_parent) {
         return Boolean(this.find_owned_process_by_pid(pid, processes, children_by_parent));
     }
@@ -3182,6 +3301,17 @@ class Bot extends EventEmitter {
                 this.gamePid = data.pid;
         }
 
+        if (this.adopt_runtime_processes(processes, children_by_parent)) {
+            this.ipcID = id;
+            if (!this.ipcState) {
+                this.log(`Assigned IPC ID ${id}`);
+                this.schedule_steamwebhelper_cleanup();
+            }
+            this.ipcLastHeartbeat = data.heartbeat || 0;
+            this.ipcState = data;
+            return;
+        }
+
         this.emit('ipc-data', {
             id: id,
             data: data
@@ -3205,6 +3335,7 @@ class Bot extends EventEmitter {
     update(processes, children_by_parent) {
         var time = Date.now();
         if (this.shouldRun && !this.shouldRestart) {
+            this.adopt_runtime_processes(processes, children_by_parent);
             if (this.procFirejailSteam) {
                 if (!this.isSteamWorking) {
                     this.refresh_steam_login_timeout(time);
@@ -3381,17 +3512,9 @@ class Bot extends EventEmitter {
                     this.killGame('bot shouldRun disabled while game is running');
                 }
                 else {
-                    if (!this.account) {
+                    if (!this.ensure_account_loaded()) {
                         this.log(`Preparing to restart with account generation ${this.account_generation}...`);
-                        this.account = accounts.get(this.botid, this.account_generation);
-                        if (!this.account) {
-                            this.state = STATE.NO_ACCOUNT;
-                            this.shouldRun = false;
-                            this.shouldRestart = false;
-                            return;
-                        }
-                        if (this.state == STATE.NO_ACCOUNT)
-                            this.state = STATE.INITIALIZED;
+                        return;
                     }
                     const start_slots_available = module.exports.currentlyStartingGames < max_concurrent_bots();
                     const start_delay_elapsed = start_delay_allows_launch(time);
