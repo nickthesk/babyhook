@@ -69,8 +69,19 @@ read_packet_state g_read_packets_state{};
 bool g_has_read_packets_state = false;
 constexpr int signon_state_full = 6;
 
+#if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
+constexpr bool textmode_build = true;
+#else
+constexpr bool textmode_build = false;
+#endif
+
 bool should_run_network_fix()
 {
+  if constexpr (textmode_build)
+  {
+    return false;
+  }
+
   return config.misc.exploits.network_fix &&
          engine != nullptr &&
          client_state != nullptr &&
