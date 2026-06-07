@@ -1692,7 +1692,6 @@ static void draw_visual_groups_content() {
     cat_menu::combo("Occluded material", (int*)&group.chams.occluded_material, material_items, IM_ARRAYSIZE(material_items));
     cat_menu::checkbox("Occluded color override", &group.chams.occluded_override_color);
     cat_menu::color_picker("Occluded color", group.chams.occluded_color.to_arr());
-    cat_menu::checkbox("Ignore z", &group.chams.ignore_z);
   });
   cat_menu::flow_panel("Glow", 2, 312.0f, [&]() {
     cat_menu::slider_int("Outline size", &group.glow.outline_scale, 0, 10);

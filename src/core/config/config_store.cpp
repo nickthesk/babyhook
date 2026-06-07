@@ -284,7 +284,6 @@ void config_store::import_config(const Config& config)
         set_color(prefix + "chams.visible_color", group.chams.visible_color);
         set_bool(prefix + "chams.occluded_override_color", group.chams.occluded_override_color);
         set_color(prefix + "chams.occluded_color", group.chams.occluded_color);
-        set_bool(prefix + "chams.ignore_z", group.chams.ignore_z);
         set_int(prefix + "glow.outline_scale", group.glow.outline_scale);
         set_float(prefix + "glow.blur_scale", group.glow.blur_scale);
         set_bool(prefix + "glow.visible_override_color", group.glow.visible_override_color);
@@ -703,7 +702,6 @@ void config_store::export_config(Config& config) const
         group.chams.visible_color = get_color(prefix + "chams.visible_color", group.chams.visible_color);
         group.chams.occluded_override_color = get_bool(prefix + "chams.occluded_override_color", group.chams.occluded_override_color);
         group.chams.occluded_color = get_color(prefix + "chams.occluded_color", group.chams.occluded_color);
-        group.chams.ignore_z = get_bool(prefix + "chams.ignore_z", group.chams.ignore_z);
         group.glow.outline_scale = std::clamp(get_int(prefix + "glow.outline_scale", group.glow.outline_scale), 0, 10);
         group.glow.blur_scale = std::clamp(get_float(prefix + "glow.blur_scale", group.glow.blur_scale), 0.0f, 10.0f);
         group.glow.visible_override_color = get_bool(prefix + "glow.visible_override_color", group.glow.visible_override_color);

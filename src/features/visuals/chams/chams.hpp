@@ -41,8 +41,6 @@ struct chams_settings {
   RGBA_float color_z{};
   RGBA_float color_overlay{};
   RGBA_float color_z_overlay{};
-  bool ignore_z = false;
-  bool ignore_z_overlay = false;
   bool wireframe = false;
   bool wireframe_z = false;
   bool wireframe_overlay = false;
@@ -239,7 +237,6 @@ static void set_material_information(Material* material, RGBA_float color, bool 
   auto settings = chams_settings{};
   settings.color = group.chams.visible_override_color ? group.chams.visible_color : group.color;
   settings.color_z = group.chams.occluded_override_color ? group.chams.occluded_color : group.color;
-  settings.ignore_z = group.chams.ignore_z;
   settings.wireframe = is_wireframe_material(group.chams.visible_material);
   settings.wireframe_z = is_wireframe_material(group.chams.occluded_material);
   settings.material = get_material(group.chams.visible_material);
@@ -247,7 +244,35 @@ static void set_material_information(Material* material, RGBA_float color, bool 
   return settings;
 }
 
-static void run_chams_pass(void* me, void* state, ModelRenderInfo* pinfo, VMatrix* bone_to_world, RenderContext* render_context, Material* material, Material* material_z, RGBA_float color, RGBA_float color_z, bool ignore_z, bool wireframe, bool wireframe_z, bool render_original_when_material_missing) {
+static void begin_visible_chams_mask(RenderContext* render_context) {
+  render_context->clear_buffers(false, false, true);
+  render_context->set_stencil_enable(true);
+  render_context->set_stencil_compare_mode(STENCILCOMPARISONFUNCTION_ALWAYS);
+  render_context->set_stencil_pass_mode(STENCILOPERATION_REPLACE);
+  render_context->set_stencil_fail_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_zfail_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_reference_count(1);
+  render_context->set_stencil_write_mask(0xFF);
+  render_context->set_stencil_test_mask(0x0);
+}
+
+static void begin_occluded_chams_mask(RenderContext* render_context) {
+  render_context->set_stencil_compare_mode(STENCILCOMPARISONFUNCTION_NOTEQUAL);
+  render_context->set_stencil_pass_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_fail_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_zfail_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_reference_count(1);
+  render_context->set_stencil_write_mask(0x0);
+  render_context->set_stencil_test_mask(0xFF);
+}
+
+static void end_chams_mask(RenderContext* render_context) {
+  render_context->set_stencil_enable(false);
+  render_context->set_stencil_write_mask(0xFF);
+  render_context->set_stencil_test_mask(0x0);
+}
+
+static void run_chams_pass(void* me, void* state, ModelRenderInfo* pinfo, VMatrix* bone_to_world, RenderContext* render_context, Material* material, Material* material_z, RGBA_float color, RGBA_float color_z, bool wireframe, bool wireframe_z, bool render_original_when_material_missing) {
   if (material == nullptr && material_z == nullptr) {
     if (render_original_when_material_missing) {
       draw_model_execute_original(me, state, pinfo, bone_to_world);
@@ -255,11 +280,18 @@ static void run_chams_pass(void* me, void* state, ModelRenderInfo* pinfo, VMatri
     return;
   }
 
-  if (ignore_z && material_z != nullptr) {
+  if (material_z != nullptr) {
+    begin_visible_chams_mask(render_context);
+    const auto mask_color = RGBA_float{1.0f, 1.0f, 1.0f, 0.0f};
+    set_material_information(material != nullptr ? material : material_z, mask_color, false, false, OVERRIDE_NORMAL);
+    draw_model_execute_original(me, state, pinfo, bone_to_world);
+
+    begin_occluded_chams_mask(render_context);
     render_context->set_depth_range(0, 0.2);
     set_material_information(material_z, color_z, wireframe_z, true);
     draw_model_execute_original(me, state, pinfo, bone_to_world);
     render_context->set_depth_range(0, 1);
+    end_chams_mask(render_context);
   }
 
   if (material != nullptr) {
@@ -287,8 +319,8 @@ static void apply_chams_settings(void* me, void* state, ModelRenderInfo* pinfo, 
     return;
   }
 
-  run_chams_pass(me, state, pinfo, bone_to_world, render_context, settings.material, settings.material_z, settings.color, settings.color_z, settings.ignore_z, settings.wireframe, settings.wireframe_z, render_original_when_material_missing);
-  run_chams_pass(me, state, pinfo, bone_to_world, render_context, settings.material_overlay, settings.material_z_overlay, settings.color_overlay, settings.color_z_overlay, settings.ignore_z_overlay, settings.wireframe_overlay, settings.wireframe_z_overlay, false);
+  run_chams_pass(me, state, pinfo, bone_to_world, render_context, settings.material, settings.material_z, settings.color, settings.color_z, settings.wireframe, settings.wireframe_z, render_original_when_material_missing);
+  run_chams_pass(me, state, pinfo, bone_to_world, render_context, settings.material_overlay, settings.material_z_overlay, settings.color_overlay, settings.color_z_overlay, settings.wireframe_overlay, settings.wireframe_z_overlay, false);
 }
 
 #endif
