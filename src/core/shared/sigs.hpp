@@ -180,8 +180,8 @@ constexpr const char* material_system_get_scratch_vtf_texture =
   "48 8D 05 ? ? ? ? 55 48 89 E5 41 54 53 4C 8D 25 ? ? ? ? 48 8B 38 48 8B 07 FF 90 B8 04 00 00";
 constexpr const char* material_system_handle_file_load_failed_texture =
   "55 41 B8 0C 00 00 00 B9 01 00 00 00 BA 20 00 00 00 48 89 E5 41 57 41 56 41 55 49 89 FD 41 54 49 89 F4";
-constexpr const char* material_var_destroy =
-  "48 85 FF 74 ? 55 48 8D 15 ? ? ? ? 48 89 E5 41 54 49 89 FC 48 83 EC 08 48 8B 07 48 8B 80 ? ? ? ? 48 39 D0 75 ? 48 8D 05 ? ? ? ? 48 89 07 E8 ? ? ? ? 4C 89 E7 4C 8B 65 F8 C9";
+constexpr const char* material_var_cleanup =
+  "55 48 89 E5 41 54 49 89 FC 53 48 8B 77 50 48 85 F6 74 ? 80 7F 2A 00 74 ? 31 DB 0F 1F 44 00 00 48 8B 3C DE 48 83 C3 01 E8 ? ? ? ? 41 0F B6 44 24 2A 49 8B 74 24 50 39 D8";
 constexpr const char* particle_property_create =
   "55 48 89 E5 41 57 41 56 49 89 F6 41 55 41 54 53 48 89 FB 48 83 EC ? 48 8D 05 ? ? ? ? 89 55 ? 89 4D ? 66 0F D6 45 ?";
 constexpr const char* particle_system_precache =

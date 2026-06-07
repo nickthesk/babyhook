@@ -156,21 +156,31 @@ funchook_t* funchook;
 
 bool initialize_game_runtime();
 
-using material_var_destroy_fn = void (*)(void*);
-material_var_destroy_fn material_var_destroy_original = nullptr;
+using material_var_cleanup_fn = std::int64_t (*)(void*);
+material_var_cleanup_fn material_var_cleanup_original = nullptr;
 
-void material_var_destroy_hook(void* material_var)
+std::int64_t material_var_cleanup_hook(void* material)
 {
-  if (material_var == nullptr) {
-    return;
+  if (material == nullptr || material_var_cleanup_original == nullptr) {
+    return 0;
   }
 
-  void* vtable = *reinterpret_cast<void**>(material_var);
-  if (vtable == nullptr || material_var_destroy_original == nullptr) {
-    return;
+  constexpr std::ptrdiff_t material_var_count_offset = 0x2a;
+  constexpr std::ptrdiff_t material_var_array_offset = 0x50;
+
+  std::uint8_t* material_bytes = reinterpret_cast<std::uint8_t*>(material);
+  std::uint8_t material_var_count = *(material_bytes + material_var_count_offset);
+  void*** material_vars = *reinterpret_cast<void****>(material_bytes + material_var_array_offset);
+  if (material_vars != nullptr) {
+    for (std::uint8_t index = 0; index < material_var_count; ++index) {
+      void** material_var = material_vars[index];
+      if (material_var != nullptr && *material_var == nullptr) {
+        material_vars[index] = nullptr;
+      }
+    }
   }
 
-  material_var_destroy_original(material_var);
+  return material_var_cleanup_original(material);
 }
 
 namespace
@@ -1483,10 +1493,10 @@ bool initialize_game_runtime() {
     print("Failed to find CTFWeaponBaseMelee::CalcIsAttackCritical; melee crit hack prediction fix disabled\n");
   }
 
-  material_var_destroy_original =
-    reinterpret_cast<material_var_destroy_fn>(sigscan_module("materialsystem.so", sigs::material_var_destroy));
-  if (material_var_destroy_original == nullptr) {
-    print("Failed to find material var destroy crashfix hook; material cleanup crashfix disabled\n");
+  material_var_cleanup_original =
+    reinterpret_cast<material_var_cleanup_fn>(sigscan_module("materialsystem.so", sigs::material_var_cleanup));
+  if (material_var_cleanup_original == nullptr) {
+    print("Failed to find material var cleanup crashfix hook; material cleanup crashfix disabled\n");
   }
 
   initialize_cl_move_globals(host_should_run);
@@ -1581,9 +1591,12 @@ bool initialize_game_runtime() {
     error_assert(rv != 0, "Failed to prepare CTFWeaponBaseMelee::CalcIsAttackCritical hook\n");
   }
 
-  if (material_var_destroy_original != nullptr) {
-    rv = funchook_prepare(funchook, (void**)&material_var_destroy_original, (void*)material_var_destroy_hook);
-    error_assert(rv != 0, "Failed to prepare material var destroy crashfix hook\n");
+  if (material_var_cleanup_original != nullptr) {
+    rv = funchook_prepare(funchook, (void**)&material_var_cleanup_original, (void*)material_var_cleanup_hook);
+    if (rv != 0) {
+      material_var_cleanup_original = nullptr;
+      print("Failed to prepare material var cleanup crashfix hook\n");
+    }
   }
 
   key_values_constructor_original = (KeyValues* (*)(void*, const char*))sigscan_module("client.so", sigs::key_values_constructor);
