@@ -66,11 +66,23 @@ struct read_packet_state
 };
 
 read_packet_state g_read_packets_state{};
+std::int64_t g_read_packets_result = 0;
 bool g_has_read_packets_state = false;
 constexpr int signon_state_full = 6;
 
+#if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
+constexpr bool textmode_build = true;
+#else
+constexpr bool textmode_build = false;
+#endif
+
 bool should_run_network_fix()
 {
+  if constexpr (textmode_build)
+  {
+    return false;
+  }
+
   return config.misc.exploits.network_fix &&
          engine != nullptr &&
          client_state != nullptr &&
@@ -93,8 +105,15 @@ void run_network_fix_before_move(bool final_tick)
 
   read_packet_state backup_state{};
   backup_state.store();
-  cl_read_packets_original(final_tick ? 1 : 0);
+  const std::int64_t result = cl_read_packets_original(final_tick ? 1 : 0);
+  if (!should_run_network_fix())
+  {
+    g_has_read_packets_state = false;
+    return;
+  }
+
   g_read_packets_state.store();
+  g_read_packets_result = result;
   backup_state.restore();
   g_has_read_packets_state = true;
 }
@@ -105,7 +124,7 @@ std::int64_t cl_read_packets_hook(char final_tick)
   {
     g_read_packets_state.restore();
     g_has_read_packets_state = false;
-    return 0;
+    return g_read_packets_result;
   }
 
   return cl_read_packets_original(final_tick);

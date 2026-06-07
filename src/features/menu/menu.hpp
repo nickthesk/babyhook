@@ -1662,11 +1662,11 @@ static void draw_visual_groups_content() {
     cat_menu::checkbox("Tags override color", &group.tags_override_color);
   });
   cat_menu::flow_panel("Targets", 1, 258.0f, [&]() {
-    cat_menu::multi_select_combo("Entity types", &group.targets, target_items, target_bits, IM_ARRAYSIZE(target_items));
+    cat_menu::multi_select_combo("Entity target types", &group.targets, target_items, target_bits, IM_ARRAYSIZE(target_items));
     cat_menu::multi_select_combo("Conditions", &group.conditions, condition_items, condition_bits, IM_ARRAYSIZE(condition_items));
-    cat_menu::multi_select_combo("Players", &group.players, player_items, player_bits, IM_ARRAYSIZE(player_items));
-    cat_menu::multi_select_combo("Buildings", &group.buildings, building_items, building_bits, IM_ARRAYSIZE(building_items));
-    cat_menu::multi_select_combo("Projectiles", &group.projectiles, projectile_items, projectile_bits, IM_ARRAYSIZE(projectile_items));
+    cat_menu::multi_select_combo("Player filters", &group.players, player_items, player_bits, IM_ARRAYSIZE(player_items));
+    cat_menu::multi_select_combo("Building filters", &group.buildings, building_items, building_bits, IM_ARRAYSIZE(building_items));
+    cat_menu::multi_select_combo("Projectile filters", &group.projectiles, projectile_items, projectile_bits, IM_ARRAYSIZE(projectile_items));
   });
   cat_menu::flow_panel("ESP", 1, 388.0f, [&]() {
     cat_menu::multi_select_combo("Draw", &group.esp.draw_mask, esp_items, esp_bits, IM_ARRAYSIZE(esp_items));

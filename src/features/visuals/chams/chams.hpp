@@ -237,8 +237,8 @@ static void set_material_information(Material* material, RGBA_float color, bool 
 
 [[nodiscard]] static chams_settings get_chams_settings(const visual_group& group) {
   auto settings = chams_settings{};
-  settings.color = group.color;
-  settings.color_z = group.color;
+  settings.color = group.chams.visible_override_color ? group.chams.visible_color : group.color;
+  settings.color_z = group.chams.occluded_override_color ? group.chams.occluded_color : group.color;
   settings.ignore_z = group.chams.ignore_z;
   settings.wireframe = is_wireframe_material(group.chams.visible_material);
   settings.wireframe_z = is_wireframe_material(group.chams.occluded_material);
