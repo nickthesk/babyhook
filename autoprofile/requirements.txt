@@ -1,8 +1,0 @@
-steam[client]
-fastapi
-uvicorn
-requests[socks]
-beautifulsoup4
-playwright
-
-textual

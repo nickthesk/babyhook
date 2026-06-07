@@ -1,2 +1,0 @@
-# Put target Steam IDs here to scrape identities from. One per line.
-# Format: steamid32 or steamid64

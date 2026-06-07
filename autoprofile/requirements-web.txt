@@ -1,5 +1,0 @@
-fastapi
-uvicorn[standard]
-requests[socks]
-steam[client]
-playwright
