@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -42,7 +43,7 @@ struct visual_group_snapshot
 namespace
 {
 
-std::shared_ptr<const visual_groups::visual_group_snapshot> g_group_snapshot{};
+std::atomic<std::shared_ptr<const visual_groups::visual_group_snapshot>> g_group_snapshot{};
 
 [[nodiscard]] bool text_contains(std::string_view text, std::string_view needle)
 {
@@ -788,7 +789,7 @@ void store(Player* localplayer)
   next_snapshot->active_group_mask = config.visual_groups.active_group_mask;
 
   if (!groups_active() || localplayer == nullptr || entity_list == nullptr || engine == nullptr || !engine->is_in_game()) {
-    std::atomic_store(&g_group_snapshot, std::shared_ptr<const visual_group_snapshot>{next_snapshot});
+    g_group_snapshot.store(std::shared_ptr<const visual_group_snapshot>{next_snapshot}, std::memory_order_release);
     return;
   }
 
@@ -812,7 +813,7 @@ void store(Player* localplayer)
     }
   }
 
-  std::atomic_store(&g_group_snapshot, std::shared_ptr<const visual_group_snapshot>{next_snapshot});
+  g_group_snapshot.store(std::shared_ptr<const visual_group_snapshot>{next_snapshot}, std::memory_order_release);
 }
 
 visual_group_match group_for_entity(Entity* entity, bool models)
@@ -821,7 +822,7 @@ visual_group_match group_for_entity(Entity* entity, bool models)
     return {};
   }
 
-  std::shared_ptr<const visual_group_snapshot> snapshot = std::atomic_load(&g_group_snapshot);
+  std::shared_ptr<const visual_group_snapshot> snapshot = g_group_snapshot.load(std::memory_order_acquire);
   if (snapshot == nullptr) {
     return {};
   }

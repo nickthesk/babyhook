@@ -1075,7 +1075,7 @@ inline aimbot_point aimbot_find_best_point(Player* localplayer,
   }
 
   if (hitbox_mask == aim_hitbox_mask_none) {
-    hitbox_mask = aim_hitbox_mask_default_hitscan;
+    return best_point;
   }
 
   studio_hitbox_set* hitbox_set = nullptr;

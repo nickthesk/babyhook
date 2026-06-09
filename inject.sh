@@ -26,6 +26,7 @@ CATHOOK_GDB_CRASH_REPORTS=${CATHOOK_GDB_CRASH_REPORTS:-0}
 CATHOOK_GDB_KEEP_CORE=${CATHOOK_GDB_KEEP_CORE:-0}
 CATHOOK_TARGET_PID=${CATHOOK_TARGET_PID:-}
 CATHOOK_INCLUDE_BOTS=${CATHOOK_INCLUDE_BOTS:-0}
+CATHOOK_DETACH_TIMEOUT_SECONDS=${CATHOOK_DETACH_TIMEOUT_SECONDS:-8}
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -69,6 +70,10 @@ done
 
 if [[ ! "$CATHOOK_ATTACH_DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
     CATHOOK_ATTACH_DELAY_SECONDS=0
+fi
+
+if [[ ! "$CATHOOK_DETACH_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [ "$CATHOOK_DETACH_TIMEOUT_SECONDS" -lt 1 ]; then
+    CATHOOK_DETACH_TIMEOUT_SECONDS=8
 fi
 
 if selected_mode="$(cathook_mode_from_env 0)"; then
@@ -891,20 +896,21 @@ unload() {
     stop_log_tail
     cleanup_temp_runtime
 
-    run_gdb_batch 10 -ex "attach $PROCID" \
+    run_gdb_batch 3 -ex "attach $PROCID" \
          -ex "call cathook_detach()" \
          -ex "detach" >/dev/null 2>&1 || true
 
     local detached=0
-    for _ in $(seq 1 40); do
-        if run_gdb_batch 5 -ex "attach $PROCID" \
+    local detach_deadline=$((SECONDS + CATHOOK_DETACH_TIMEOUT_SECONDS))
+    while [ "$SECONDS" -lt "$detach_deadline" ]; do
+        if run_gdb_batch 1 -ex "attach $PROCID" \
              -ex "call cathook_is_detached()" \
              -ex "detach" 2>/dev/null | grep -Eq '\$1 = (true|1)'; then
             detached=1
             break
         fi
 
-        sleep 0.25
+        sleep 0.5
     done
 
     if [[ "$detached" != "1" ]]; then

@@ -3110,7 +3110,7 @@ void draw_aimbot_fov_imgui()
   }
 
   auto* localplayer = entity_list->get_localplayer();
-  if (localplayer == nullptr) {
+  if (localplayer == nullptr || !localplayer->is_alive()) {
     return;
   }
 
@@ -3120,21 +3120,40 @@ void draw_aimbot_fov_imgui()
   }
 
   auto screen_size = engine->get_screen_size();
-  auto local_fov = localplayer->get_fov();
-  if (config.visuals.override_fov && !localplayer->is_scoped()) {
-    local_fov = config.visuals.custom_fov;
+  if (screen_size.x <= 0 || screen_size.y <= 0) {
+    screen_size.x = static_cast<int>(overlay_projection::state.screen_width);
+    screen_size.y = static_cast<int>(overlay_projection::state.screen_height);
   }
-  if (config.visuals.removals.zoom) {
-    local_fov = localplayer->get_default_fov();
+  if (screen_size.x <= 0 || screen_size.y <= 0) {
+    return;
   }
-  if (config.visuals.override_fov && config.visuals.removals.zoom) {
-    local_fov = config.visuals.custom_fov;
+
+  auto local_fov = overlay_projection::state.view_fov;
+  if (!std::isfinite(local_fov) || local_fov <= 1.0f) {
+    local_fov = static_cast<float>(localplayer->get_fov());
+    if (!std::isfinite(local_fov) || local_fov <= 1.0f) {
+      local_fov = static_cast<float>(localplayer->get_default_fov());
+    }
+    if (config.visuals.override_fov && !localplayer->is_scoped()) {
+      local_fov = config.visuals.custom_fov;
+    }
+    if (config.visuals.removals.zoom) {
+      local_fov = static_cast<float>(localplayer->get_default_fov());
+    }
+    if (config.visuals.override_fov && config.visuals.removals.zoom) {
+      local_fov = config.visuals.custom_fov;
+    }
+  }
+
+  const auto denominator = std::tan((local_fov / 2.0f) / 180.0f * static_cast<float>(M_PI));
+  if (!std::isfinite(denominator) || denominator <= 0.0f) {
+    return;
   }
 
   auto radius = (std::tan(config.aimbot.fov / 180.0f * static_cast<float>(M_PI)) /
-    std::tan((local_fov / 2.0f) / 180.0f * static_cast<float>(M_PI)) *
+    denominator *
     (static_cast<float>(screen_size.x) / 2.0f)) / 1.35f;
-  if (radius <= 0.0f) {
+  if (!std::isfinite(radius) || radius <= 0.0f) {
     return;
   }
 

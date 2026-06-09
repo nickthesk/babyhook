@@ -339,11 +339,8 @@ bool hitscan_settled(const aimbot_run_context& ctx) {
   if (!ctx.hitscan || !aimbot_mode_uses_visible_steering()) {
     return true;
   }
-  if (ctx.hitscan_fire.ready &&
-      hitscan_aim_trace_candidate(ctx.local, ctx.target, ctx.applied_angles)) {
-    return true;
-  }
-  return aimbot_calculate_fov(ctx.applied_angles, ctx.target_angles) <= 1.75f;
+
+  return hitscan_aim_trace_candidate(ctx.local, ctx.target, ctx.applied_angles);
 }
 
 bool hitscan_fast_head_backtrack_better(const aimbot_candidate& candidate, const aimbot_candidate& best) {
@@ -429,6 +426,8 @@ void compute_readiness(aimbot_run_context& ctx) {
       melee_swing_active(ctx.local, ctx.weapon));
   if (ctx.projectile) {
     ctx.debug.final_trace_hit = ctx.readiness.trace;
+  } else if (ctx.hitscan) {
+    ctx.debug.final_trace_hit = ctx.hitscan_fire.ready && ctx.readiness.settled;
   }
 
   if (!ctx.readiness.ready()) {

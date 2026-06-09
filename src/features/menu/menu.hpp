@@ -1315,7 +1315,7 @@ static void draw_watermark(void) {
   y += line_step;
   draw_cathook_side_string(draw_list, y, IM_COL32(255, 255, 255, 255), cathook_watermark_type());
   y += line_step;
-  draw_cathook_side_string(draw_list, y, IM_COL32(255, 255, 255, 255), "Press 'INSERT' key to open/close cheat menu.");
+  draw_cathook_side_string(draw_list, y, IM_COL32(255, 255, 255, 255), "Press INSERT OR F11 to open/close cheat menu.");
   y += line_step;
   draw_cathook_side_string(draw_list, y, IM_COL32(255, 255, 255, 255), "Use mouse to navigate in menu.");
 }

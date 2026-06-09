@@ -13,6 +13,8 @@ V  o o  V  file: src/core/hooks/vulkan.cpp
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -60,6 +62,10 @@ static bool vulkan_platform_initialized = false;
 static bool warned_late_swapchain_format = false;
 static bool logged_swapchain_resources = false;
 static bool logged_first_overlay_submit = false;
+static bool logged_overlay_fence_timeout = false;
+static std::atomic_bool vulkan_overlay_disabled = false;
+
+static constexpr auto overlay_fence_wait_timeout = std::chrono::milliseconds(2);
 
 static ImGui_ImplVulkanH_Frame frames[max_swapchain_images] = {};
 static ImGui_ImplVulkanH_FrameSemaphores frame_semaphores[max_swapchain_images] = {};
@@ -250,8 +256,16 @@ static void destroy_swapchain_resources(bool wait_idle)
   swapchain_image_count = 0;
 }
 
-static void shutdown_vulkan_runtime_state()
+static void shutdown_vulkan_runtime_state(bool release_graphics_resources)
 {
+  vulkan_overlay_disabled.store(true, std::memory_order_release);
+
+  if (!release_graphics_resources) {
+    vulkan_renderer_initialized = false;
+    vulkan_platform_initialized = false;
+    return;
+  }
+
   destroy_swapchain_resources(true);
 
   if (vk_descriptor_pool != VK_NULL_HANDLE && vk_device != VK_NULL_HANDLE) {
@@ -634,7 +648,18 @@ static bool record_overlay_commands(uint32_t image_index)
     return false;
   }
 
-  auto result = vkWaitForFences(vk_device, 1, &frame.Fence, VK_TRUE, UINT64_MAX);
+  const auto fence_timeout = cathook::core::is_detach_pending()
+    ? 0
+    : static_cast<uint64_t>(overlay_fence_wait_timeout.count()) * 1000ULL * 1000ULL;
+  auto result = vkWaitForFences(vk_device, 1, &frame.Fence, VK_TRUE, fence_timeout);
+  if (result == VK_TIMEOUT) {
+    if (!logged_overlay_fence_timeout) {
+      print("Vulkan overlay fence wait timed out; disabling Vulkan overlay for this injection\n");
+      logged_overlay_fence_timeout = true;
+    }
+    vulkan_overlay_disabled.store(true, std::memory_order_release);
+    return false;
+  }
   if (result != VK_SUCCESS) {
     print("vkWaitForFences failed: %d\n", result);
     return false;
@@ -784,7 +809,13 @@ VkResult queue_present_hook(VkQueue queue, const VkPresentInfoKHR* present_info)
     return VK_ERROR_INITIALIZATION_FAILED;
   }
 
-  if (nographics::should_skip_rendering_hooks() || present_info == nullptr || present_info->swapchainCount != 1 || present_info->pSwapchains == nullptr || present_info->pImageIndices == nullptr) {
+  if (vulkan_overlay_disabled.load(std::memory_order_acquire) ||
+      cathook::core::is_detach_pending() ||
+      nographics::should_skip_rendering_hooks() ||
+      present_info == nullptr ||
+      present_info->swapchainCount != 1 ||
+      present_info->pSwapchains == nullptr ||
+      present_info->pImageIndices == nullptr) {
     const auto result = queue_present_original(queue, present_info);
     cathook::core::service_detach_request();
     return result;

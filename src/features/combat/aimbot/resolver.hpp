@@ -1114,7 +1114,7 @@ inline void note_player_hurt(Player* attacker, Player* victim)
   }
 
   const std::uint32_t configured_mask = config.aimbot.hitscan_hitboxes & aim_hitbox_mask_all;
-  const std::uint32_t hitbox_mask = configured_mask != 0 ? configured_mask : aim_hitbox_mask_default_hitscan;
+  const std::uint32_t hitbox_mask = configured_mask;
   const int max_candidates = std::clamp(config.aimbot.resolver_max_yaws, 4, max_yaw_candidates);
 
   scoped_bone_cache_bypass bone_cache_bypass{};

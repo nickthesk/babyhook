@@ -134,8 +134,7 @@ inline Vec3 hitscan_aim_command_angles(Player* localplayer, const Vec3& bullet_a
 }
 
 inline uint32_t hitscan_aim_configured_hitbox_mask() {
-  const uint32_t mask = config.aimbot.hitscan_hitboxes & aim_hitbox_mask_all;
-  return mask != 0 ? mask : aim_hitbox_mask_default_hitscan;
+  return config.aimbot.hitscan_hitboxes & aim_hitbox_mask_all;
 }
 
 inline unsigned int hitscan_aim_trace_mask() {
@@ -321,6 +320,10 @@ inline int hitscan_aim_priority_hitbox(Player* localplayer,
     aim_hitbox_left_foot,
     aim_hitbox_right_foot
   };
+
+  if (settings.hitbox_mask == aim_hitbox_mask_none) {
+    return -1;
+  }
 
   if (!hitscan_aim_head_only(settings.hitbox_mask) && hitscan_aim_body_forced(localplayer, weapon, target)) {
     uint32_t body_mask = settings.hitbox_mask & ~aim_hitbox_mask_head;

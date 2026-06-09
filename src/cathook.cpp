@@ -755,14 +755,14 @@ void shutdown_imgui_runtime()
   ImGui::DestroyContext();
 }
 
-void shutdown_vulkan_runtime()
+void shutdown_vulkan_runtime(bool release_graphics_resources)
 {
-  shutdown_vulkan_runtime_state();
+  shutdown_vulkan_runtime_state(release_graphics_resources);
 }
 
-void shutdown_gl_runtime()
+void shutdown_gl_runtime(bool release_graphics_resources)
 {
-  if (menu_gl_context != nullptr) {
+  if (release_graphics_resources && menu_gl_context != nullptr) {
     SDL_GL_DeleteContext(menu_gl_context);
   }
 
@@ -919,8 +919,14 @@ bool unload_module_runtime() {
     finish_sdl_hook_uninstall();
   }
 
-  shutdown_vulkan_runtime();
-  shutdown_gl_runtime();
+  const bool release_graphics_resources = process_exiting.load(std::memory_order_acquire)
+      || is_environment_enabled("CATHOOK_DETACH_RELEASE_GRAPHICS");
+  if (!release_graphics_resources) {
+    print("Skipping graphics resource release during detach\n");
+  }
+
+  shutdown_vulkan_runtime(release_graphics_resources);
+  shutdown_gl_runtime(release_graphics_resources);
   shutdown_imgui_runtime();
 
   menu_focused = false;

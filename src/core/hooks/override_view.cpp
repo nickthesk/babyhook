@@ -15,6 +15,7 @@ V  o o  V  file: src/core/hooks/override_view.cpp
 #include "games/tf2/sdk/interfaces/convar_system.hpp"
 
 #include "features/menu/config.hpp"
+#include "features/visuals/overlay_projection.hpp"
 #include "features/visuals/thirdperson.hpp"
 
 #include "games/tf2/sdk/entities/player.hpp"
@@ -42,4 +43,5 @@ void override_view_hook(void* me, view_setup* setup) {
   }
 
   thirdperson::update_camera(setup);
+  overlay_projection::set_view_fov(setup->fov);
 }

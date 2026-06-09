@@ -40,13 +40,31 @@ struct state_t
   VMatrix world_to_projection{};
   float screen_width = 0.0f;
   float screen_height = 0.0f;
+  float view_fov = 0.0f;
 };
 
 inline state_t state{};
 
+inline void invalidate()
+{
+  state.valid = false;
+  state.matrix_valid = false;
+  state.screen_width = 0.0f;
+  state.screen_height = 0.0f;
+  state.view_fov = 0.0f;
+}
+
+inline void set_view_fov(float fov)
+{
+  if (std::isfinite(fov) && fov > 1.0f) {
+    state.view_fov = fov;
+  }
+}
+
 inline void use_imgui_size(float* width, float* height)
 {
-  if (width == nullptr || height == nullptr || (*width > 0.0f && *height > 0.0f)) {
+  if (width == nullptr || height == nullptr || (*width > 0.0f && *height > 0.0f) ||
+      ImGui::GetCurrentContext() == nullptr) {
     return;
   }
 
@@ -95,13 +113,37 @@ inline void use_view_size(const view_setup& view, float* width, float* height)
   }
 }
 
+inline void update_screen_size(const view_setup& view, screen_space_t screen_space)
+{
+  auto screen_width = 0.0f;
+  auto screen_height = 0.0f;
+
+  if (screen_space == screen_space_t::surface) {
+    use_surface_size(&screen_width, &screen_height);
+    use_engine_size(&screen_width, &screen_height);
+    use_view_size(view, &screen_width, &screen_height);
+    use_imgui_size(&screen_width, &screen_height);
+  } else if (screen_space == screen_space_t::engine) {
+    use_engine_size(&screen_width, &screen_height);
+    use_view_size(view, &screen_width, &screen_height);
+    use_imgui_size(&screen_width, &screen_height);
+  } else {
+    use_imgui_size(&screen_width, &screen_height);
+    use_engine_size(&screen_width, &screen_height);
+    use_view_size(view, &screen_width, &screen_height);
+  }
+
+  if (screen_width > 0.0f && screen_height > 0.0f) {
+    state.screen_width = screen_width;
+    state.screen_height = screen_height;
+    state.valid = true;
+  }
+}
+
 [[nodiscard]] inline bool begin_frame(screen_space_t screen_space = screen_space_t::imgui)
 {
   if (client == nullptr || engine == nullptr || render_view == nullptr) {
-    state.valid = false;
-    state.matrix_valid = false;
-    state.screen_width = 0.0f;
-    state.screen_height = 0.0f;
+    invalidate();
     return false;
   }
 
@@ -121,25 +163,9 @@ inline void use_view_size(const view_setup& view, float* width, float* height)
     &world_to_projection,
     &world_to_pixels);
 
-  auto screen_width = 0.0f;
-  auto screen_height = 0.0f;
-
-  if (screen_space == screen_space_t::surface) {
-    use_surface_size(&screen_width, &screen_height);
-    use_engine_size(&screen_width, &screen_height);
-    use_view_size(local_view, &screen_width, &screen_height);
-    use_imgui_size(&screen_width, &screen_height);
-  } else if (screen_space == screen_space_t::engine) {
-    use_engine_size(&screen_width, &screen_height);
-    use_view_size(local_view, &screen_width, &screen_height);
-    use_imgui_size(&screen_width, &screen_height);
-  } else {
-    use_imgui_size(&screen_width, &screen_height);
-    use_engine_size(&screen_width, &screen_height);
-    use_view_size(local_view, &screen_width, &screen_height);
-  }
-
-  if (screen_width <= 0.0f || screen_height <= 0.0f) {
+  update_screen_size(local_view, screen_space);
+  set_view_fov(local_view.fov);
+  if (state.screen_width <= 0.0f || state.screen_height <= 0.0f) {
     return state.valid && state.matrix_valid;
   }
 
@@ -149,8 +175,6 @@ inline void use_view_size(const view_setup& view, float* width, float* height)
     }
   }
 
-  state.screen_width = screen_width;
-  state.screen_height = screen_height;
   state.matrix_valid = true;
   state.valid = true;
   return true;
@@ -184,8 +208,10 @@ inline void use_view_size(const view_setup& view, float* width, float* height)
     }
   }
 
+  update_screen_size(local_view, screen_space_t::engine);
+  set_view_fov(local_view.fov);
   state.matrix_valid = true;
-  return true;
+  return state.valid;
 }
 
 [[nodiscard]] inline bool world_to_screen(const Vec3& point, Vec3* screen)
