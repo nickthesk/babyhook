@@ -19,6 +19,7 @@ V  o o  V  file: src/features/menu/menu.hpp
 #include "core/detach.hpp"
 #include "core/ipc/ipc_client.hpp"
 #include "core/logger.hpp"
+#include "features/automation/navbot/navbot_types.hpp"
 #include "features/automation/region_selector/region_selector.hpp"
 #include "features/visuals/groups/visual_groups.hpp"
 #include "imgui/dearimgui.hpp"
@@ -1876,22 +1877,26 @@ static void draw_navbot_content() {
     "Heal follow"
   };
   const uint32_t navbot_job_bits[] = {
-    1u << 0,
-    1u << 1,
-    1u << 2,
-    1u << 3,
-    1u << 4,
-    1u << 5,
-    1u << 6,
-    1u << 7,
-    1u << 8,
-    1u << 9,
-    1u << 10,
-    1u << 11,
-    1u << 12,
-    1u << 13,
-    1u << 15
+    navbot::goal_type_bit(navbot::goal_type::get_health),
+    navbot::goal_type_bit(navbot::goal_type::get_ammo),
+    navbot::goal_type_bit(navbot::goal_type::capture_objective),
+    navbot::goal_type_bit(navbot::goal_type::push_payload),
+    navbot::goal_type_bit(navbot::goal_type::defend_payload),
+    navbot::goal_type_bit(navbot::goal_type::get_flag),
+    navbot::goal_type_bit(navbot::goal_type::return_flag),
+    navbot::goal_type_bit(navbot::goal_type::escape_danger),
+    navbot::goal_type_bit(navbot::goal_type::hold_range_on_enemy),
+    navbot::goal_type_bit(navbot::goal_type::melee_chase),
+    navbot::goal_type_bit(navbot::goal_type::sentry_snipe),
+    navbot::goal_type_bit(navbot::goal_type::engineer_build),
+    navbot::goal_type_bit(navbot::goal_type::engineer_maintain),
+    navbot::goal_type_bit(navbot::goal_type::reload_weapons),
+    navbot::goal_type_bit(navbot::goal_type::heal_follow)
   };
+  uint32_t navbot_all_job_bits = 0;
+  for (uint32_t bit : navbot_job_bits) {
+    navbot_all_job_bits |= bit;
+  }
 
   cat_menu::begin_flow_layout("navbot_layout", 2);
   cat_menu::flow_panel("NavBot", 0, 520.0f, [&]() {
@@ -1918,7 +1923,10 @@ static void draw_navbot_content() {
     cat_menu::slider_float("Pitch down scale", &config.misc.automation.navbot_look_at_path_pitch_down_scale, 0.0f, 1.0f, "%.2f");
     cat_menu::slider_float("Pitch limit", &config.misc.automation.navbot_look_at_path_pitch_limit, 0.0f, 89.0f, "%.0f deg");
     cat_menu::slider_float("Crumb blacklist", &config.misc.automation.navbot_crumb_blacklist_seconds, 50.0f, 150.0f, "%.0f s");
-    cat_menu::multi_select_combo("Exclude jobs", &config.misc.automation.navbot_excluded_jobs_mask, navbot_job_items, navbot_job_bits, IM_ARRAYSIZE(navbot_job_items));
+    uint32_t navbot_enabled_jobs_mask = navbot_all_job_bits & ~config.misc.automation.navbot_excluded_jobs_mask;
+    if (cat_menu::multi_select_combo("Enabled jobs", &navbot_enabled_jobs_mask, navbot_job_items, navbot_job_bits, IM_ARRAYSIZE(navbot_job_items))) {
+      config.misc.automation.navbot_excluded_jobs_mask = navbot_all_job_bits & ~navbot_enabled_jobs_mask;
+    }
     cat_menu::checkbox("Debug text", &config.misc.automation.navbot_debug_text);
   });
   cat_menu::end_flow_layout();

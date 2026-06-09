@@ -150,6 +150,12 @@ bool goal_is_payload(goal_type type)
   return type == goal_type::push_payload || type == goal_type::defend_payload;
 }
 
+bool goal_is_disabled(goal_type type)
+{
+  return goal_type_can_be_excluded(type)
+    && (config.misc.automation.navbot_excluded_jobs_mask & goal_type_bit(type)) != 0;
+}
+
 float goal_destination_shift_sq(const navbot_goal_state& left, const navbot_goal_state& right)
 {
   auto dx = left.goal.destination.x - right.goal.destination.x;
@@ -1390,6 +1396,18 @@ void navbot_controller::on_create_move(user_cmd* user_cmd)
   auto current_time = global_vars != nullptr ? global_vars->curtime : 0.0f;
   hazards_.update_expired(current_time);
   poll_path_results();
+
+  if (active_goal_.valid && goal_is_disabled(active_goal_.goal.type))
+  {
+    jobs_.cancel_generation(current_generation_id_);
+    ++current_generation_id_;
+    pending_job_ = {};
+    next_goal_refresh_time_ = 0.0f;
+    next_path_request_time_ = 0.0f;
+    follower_.clear();
+    active_path_ = path_result{};
+    active_goal_ = {};
+  }
 
   if (active_goal_.valid && active_goal_.goal.type == goal_type::reload_weapons && !reload_job_still_needed(localplayer))
   {
