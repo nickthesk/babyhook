@@ -136,6 +136,9 @@ float g_blur_scale = 0.0f;
 bool g_filled_body = false;
 glow_resource_status g_last_resource_status = glow_resource_status::ready;
 
+void draw_glow_entity_model(Entity* entity);
+void draw_player_model(Player* player);
+
 scoped_rendering_flag::scoped_rendering_flag()
   : previous(g_rendering)
 {
@@ -540,6 +543,40 @@ void draw_halo_rectangle(RenderContext* render_context, int dest_x, int dest_y)
     g_render_height);
 }
 
+void begin_glow_composite_clip(RenderContext* render_context)
+{
+  render_context->clear_buffers(false, false, true);
+  render_context->set_stencil_enable(true);
+  render_context->set_stencil_compare_mode(STENCILCOMPARISONFUNCTION_ALWAYS);
+  render_context->set_stencil_pass_mode(STENCILOPERATION_REPLACE);
+  render_context->set_stencil_fail_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_zfail_mode(STENCILOPERATION_REPLACE);
+  render_context->set_stencil_reference_count(1);
+  render_context->set_stencil_write_mask(0xFF);
+  render_context->set_stencil_test_mask(0x0);
+
+  const auto white = RGBA_float{1.0f, 1.0f, 1.0f, 1.0f};
+  render_view->set_color_modulation(&white);
+  render_view->set_blend(0.0f);
+  set_model_glow_ignore_z(true);
+  for (const auto& entity : g_entities) {
+    if (entity.player != nullptr) {
+      draw_player_model(entity.player);
+    } else {
+      draw_glow_entity_model(entity.entity);
+    }
+  }
+
+  restore_screen_space_modulation();
+  render_context->set_stencil_compare_mode(STENCILCOMPARISONFUNCTION_EQUAL);
+  render_context->set_stencil_pass_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_fail_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_zfail_mode(STENCILOPERATION_KEEP);
+  render_context->set_stencil_reference_count(0);
+  render_context->set_stencil_write_mask(0x0);
+  render_context->set_stencil_test_mask(0xFF);
+}
+
 void second_end(RenderContext* render_context)
 {
   render_context->pop_render_target_and_viewport();
@@ -581,14 +618,7 @@ void second_end(RenderContext* render_context)
     render_context->pop_render_target_and_viewport();
   }
 
-  render_context->set_stencil_enable(true);
-  render_context->set_stencil_compare_mode(STENCILCOMPARISONFUNCTION_EQUAL);
-  render_context->set_stencil_pass_mode(STENCILOPERATION_KEEP);
-  render_context->set_stencil_fail_mode(STENCILOPERATION_KEEP);
-  render_context->set_stencil_zfail_mode(STENCILOPERATION_KEEP);
-  render_context->set_stencil_reference_count(0);
-  render_context->set_stencil_write_mask(0x0);
-  render_context->set_stencil_test_mask(0xFF);
+  begin_glow_composite_clip(render_context);
 
   const auto outline_scale = glow_outline_scale();
   if (outline_scale > 0) {

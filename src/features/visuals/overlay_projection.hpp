@@ -140,46 +140,18 @@ inline void update_screen_size(const view_setup& view, screen_space_t screen_spa
   }
 }
 
-[[nodiscard]] inline bool begin_frame(screen_space_t screen_space = screen_space_t::imgui)
+inline bool copy_view_projection(const view_setup& view)
 {
-  if (client == nullptr || engine == nullptr || render_view == nullptr) {
-    invalidate();
-    return false;
-  }
-
-  auto local_view = view_setup{};
-  // this sucks but well...
-  if (state.valid && state.matrix_valid) {
-    if (client->get_player_view(local_view)) {
-      update_screen_size(local_view, screen_space);
-      set_view_fov(local_view.fov);
-    } else {
-      update_screen_size(local_view, screen_space);
-    }
-
-    return state.valid && state.matrix_valid;
-  }
-
-  if (!client->get_player_view(local_view)) {
-    return state.valid && state.matrix_valid;
-  }
-
   VMatrix world_to_screen{};
   VMatrix view_to_projection{};
   VMatrix world_to_projection{};
   VMatrix world_to_pixels{};
   render_view->get_matrices_for_view(
-    local_view,
+    view,
     &world_to_screen,
     &view_to_projection,
     &world_to_projection,
     &world_to_pixels);
-
-  update_screen_size(local_view, screen_space);
-  set_view_fov(local_view.fov);
-  if (state.screen_width <= 0.0f || state.screen_height <= 0.0f) {
-    return state.valid && state.matrix_valid;
-  }
 
   for (int row = 0; row < 4; ++row) {
     for (int column = 0; column < 4; ++column) {
@@ -192,7 +164,7 @@ inline void update_screen_size(const view_setup& view, screen_space_t screen_spa
   return true;
 }
 
-[[nodiscard]] inline bool update_view_matrix()
+inline bool refresh_projection_state(screen_space_t screen_space)
 {
   if (client == nullptr || engine == nullptr || render_view == nullptr) {
     invalidate();
@@ -201,29 +173,26 @@ inline void update_screen_size(const view_setup& view, screen_space_t screen_spa
 
   auto local_view = view_setup{};
   if (!client->get_player_view(local_view)) {
-    return state.matrix_valid;
+    return state.valid && state.matrix_valid;
   }
 
-  VMatrix world_to_screen{};
-  VMatrix view_to_projection{};
-  VMatrix world_to_projection{};
-  VMatrix world_to_pixels{};
-  render_view->get_matrices_for_view(
-    local_view,
-    &world_to_screen,
-    &view_to_projection,
-    &world_to_projection,
-    &world_to_pixels);
-  for (int row = 0; row < 4; ++row) {
-    for (int column = 0; column < 4; ++column) {
-      state.world_to_projection[row][column] = world_to_projection[row][column];
-    }
-  }
-
-  update_screen_size(local_view, screen_space_t::engine);
+  update_screen_size(local_view, screen_space);
   set_view_fov(local_view.fov);
-  state.matrix_valid = true;
-  return state.valid;
+  if (state.screen_width <= 0.0f || state.screen_height <= 0.0f) {
+    return state.valid && state.matrix_valid;
+  }
+
+  return copy_view_projection(local_view);
+}
+
+[[nodiscard]] inline bool begin_frame(screen_space_t screen_space = screen_space_t::imgui)
+{
+  return refresh_projection_state(screen_space);
+}
+
+[[nodiscard]] inline bool update_view_matrix()
+{
+  return refresh_projection_state(screen_space_t::engine);
 }
 
 [[nodiscard]] inline bool world_to_screen(const Vec3& point, Vec3* screen)

@@ -282,19 +282,22 @@ static void run_chams_pass(void* me, void* state, ModelRenderInfo* pinfo, VMatri
 
   if (material_z != nullptr) {
     begin_visible_chams_mask(render_context);
-    const auto mask_color = RGBA_float{1.0f, 1.0f, 1.0f, 0.0f};
-    set_material_information(material != nullptr ? material : material_z, mask_color, false, false, OVERRIDE_NORMAL);
-    draw_model_execute_original(me, state, pinfo, bone_to_world);
+    if (material != nullptr) {
+      set_material_information(material, color, wireframe, false, OVERRIDE_NORMAL);
+      draw_model_execute_original(me, state, pinfo, bone_to_world);
+    } else if (render_original_when_material_missing) {
+      model_render->forced_material_override(nullptr, OVERRIDE_NORMAL);
+      const auto white = RGBA_float{1.0f, 1.0f, 1.0f, 1.0f};
+      render_view->set_color_modulation(&white);
+      render_view->set_blend(1.0f);
+      draw_model_execute_original(me, state, pinfo, bone_to_world);
+    }
 
     begin_occluded_chams_mask(render_context);
-    render_context->set_depth_range(0, 0.2);
     set_material_information(material_z, color_z, wireframe_z, true);
     draw_model_execute_original(me, state, pinfo, bone_to_world);
-    render_context->set_depth_range(0, 1);
     end_chams_mask(render_context);
-  }
-
-  if (material != nullptr) {
+  } else if (material != nullptr) {
     set_material_information(material, color, wireframe, false, OVERRIDE_NORMAL);
     draw_model_execute_original(me, state, pinfo, bone_to_world);
   } else if (render_original_when_material_missing) {
