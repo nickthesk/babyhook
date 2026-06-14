@@ -141,6 +141,8 @@ class BotManager {
                 this.stop_failed_bot(b, 'bot update failed', error);
             }
         }
+
+        this.rebuild_snapshots();
         try {
             this.ban_tracker.update();
         } catch (error) {
@@ -246,7 +248,7 @@ class BotManager {
         }
         this.wanted_quota = quota;
         this.quota = quota;
-        this.recover_existing_until = Date.now() + 30000;
+        this.recover_existing_until = Date.now() + 5000;
         this.enforceQuota();
         this.rebuild_snapshots();
         this.schedule_update(0);

@@ -1179,7 +1179,27 @@ void exception_handler::install(const std::filesystem::path& log_file_path)
     };
     if (fd < 0)
     {
-        return;
+        const std::string fallback_path
+        {
+            std::string{ "/tmp/cathook-" } + std::to_string(static_cast<unsigned long>(::getpid())) + "-exception.log"
+        };
+        const int fallback_fd
+        {
+            ::open(
+                fallback_path.c_str(),
+                O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC,
+                0644)
+        };
+        if (fallback_fd < 0)
+        {
+            return;
+        }
+
+        s_log_fd.store(fallback_fd);
+    }
+    else
+    {
+        s_log_fd.store(fd);
     }
 
     struct sigaction action{};
@@ -1197,12 +1217,16 @@ void exception_handler::install(const std::filesystem::path& log_file_path)
                 static_cast<void>(::sigaction(k_signals[restore_index], &handler_state.previous_actions[restore_index], nullptr));
             }
 
-            ::close(fd);
+            const int installed_fd{ s_log_fd.load() };
+            if (installed_fd >= 0)
+            {
+                ::close(installed_fd);
+                s_log_fd.store(-1);
+            }
             return;
         }
     }
 
-    s_log_fd.store(fd);
     handler_state.installed = true;
 }
 

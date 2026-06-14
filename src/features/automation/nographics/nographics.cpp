@@ -82,6 +82,24 @@ constexpr int client_achievement_save_thread_start_call_offset = 0x2C1;
 constexpr int relative_jump_size = 5;
 constexpr int fs_async_err_fileopen = -1;
 
+constexpr float studio_render_identity_matrix[12] = {
+  1.0f, 0.0f, 0.0f, 0.0f,
+  0.0f, 1.0f, 0.0f, 0.0f,
+  0.0f, 0.0f, 1.0f, 0.0f,
+};
+
+alignas(16) char studio_render_matrix_multiply_sentinel[64]{};
+
+void write_studio_render_identity_matrix(double* output_matrix)
+{
+  if (output_matrix == nullptr)
+  {
+    return;
+  }
+
+  std::memcpy(output_matrix, studio_render_identity_matrix, sizeof(studio_render_identity_matrix));
+}
+
 bool env_flag_disabled(const char* name)
 {
   const char* value = std::getenv(name);
@@ -105,7 +123,8 @@ using read_file_fn = bool (*)(void*, const char*, const char*, void*, int, int, 
 using texture_load_bits_fn = void* (*)(void*, const char*, char**);
 using get_scratch_vtf_texture_fn = void* (*)(void*);
 using handle_file_load_failed_texture_fn = void* (*)(void*, void*);
-using bone_setup_attachment_matrices_fn = std::int64_t (*)(void*, const void*, int, void*, void*, std::int64_t, int);
+using studio_render_blend_bones_fn = void (*)(double*, std::uint32_t*, int, std::int64_t, const double*);
+using studio_render_matrix_multiply_fn = void* (*)(const double*, const double*, double*);
 using create_render_target_texture_fn = Texture* (*)(void*, int, int, render_target_size_mode, image_format, material_render_target_depth);
 using create_named_render_target_texture_ex_fn = Texture* (*)(void*, const char*, int, int, render_target_size_mode, image_format, material_render_target_depth, unsigned int, unsigned int);
 using create_named_render_target_texture_fn = Texture* (*)(void*, const char*, int, int, render_target_size_mode, image_format, material_render_target_depth, bool, bool);
@@ -160,7 +179,8 @@ read_file_fn read_file_original = nullptr;
 texture_load_bits_fn texture_load_bits_original = nullptr;
 get_scratch_vtf_texture_fn get_scratch_vtf_texture = nullptr;
 handle_file_load_failed_texture_fn handle_file_load_failed_texture = nullptr;
-bone_setup_attachment_matrices_fn bone_setup_attachment_matrices_original = nullptr;
+studio_render_blend_bones_fn studio_render_blend_bones_original = nullptr;
+studio_render_matrix_multiply_fn studio_render_matrix_multiply_original = nullptr;
 create_render_target_texture_fn create_render_target_texture_original = nullptr;
 create_named_render_target_texture_ex_fn create_named_render_target_texture_ex_original = nullptr;
 create_named_render_target_texture_fn create_named_render_target_texture_original = nullptr;
@@ -182,15 +202,16 @@ void* studio_render_interface = nullptr;
 void** studio_render_vtable = nullptr;
 void** mdl_cache_vtable = nullptr;
 funchook_t* texture_load_bits_funchook = nullptr;
-funchook_t* bone_setup_attachment_matrices_funchook = nullptr;
+funchook_t* studio_render_blend_bones_funchook = nullptr;
+funchook_t* studio_render_matrix_multiply_funchook = nullptr;
 bool file_system_hooked = false;
 bool material_system_render_target_hooked = false;
 bool studio_render_hooked = false;
 bool mdl_cache_touch_all_data_hooked = false;
 bool texture_load_bits_hooked = false;
 bool texture_load_bits_hook_failed = false;
-bool bone_setup_attachment_matrices_hooked = false;
-bool bone_setup_attachment_matrices_hook_failed = false;
+bool studio_render_blend_bones_hooked = false;
+bool studio_render_matrix_multiply_hooked = false;
 bool material_stub_enabled = false;
 bool render_patches_applied = false;
 bool optional_render_patches_applied = false;
@@ -886,28 +907,30 @@ void add_files_to_cache_hook(void* this_ptr, file_cache_handle_t cache_id, const
     path_id);
 }
 
-std::int64_t bone_setup_attachment_matrices_hook(
-  void* studio_hdr,
-  const void* parent_transform,
-  int bone_index,
-  void* bone_matrix_buffer,
-  void* attachment_data,
-  std::int64_t origin_buffer,
-  int origin_count)
+void studio_render_blend_bones_hook(
+  double* output_matrices,
+  std::uint32_t* studio_mesh,
+  int bone_mask,
+  std::int64_t unused,
+  const double* bone_matrices)
 {
-  if (studio_hdr == nullptr || bone_matrix_buffer == nullptr || attachment_data == nullptr)
+  if (output_matrices == nullptr || studio_mesh == nullptr || bone_matrices == nullptr)
   {
-    return 0;
+    return;
   }
 
-  return bone_setup_attachment_matrices_original(
-    studio_hdr,
-    parent_transform,
-    bone_index,
-    bone_matrix_buffer,
-    attachment_data,
-    origin_buffer,
-    origin_count);
+  studio_render_blend_bones_original(output_matrices, studio_mesh, bone_mask, unused, bone_matrices);
+}
+
+void* studio_render_matrix_multiply_hook(const double* left, const double* right, double* output)
+{
+  if (left == nullptr || right == nullptr || output == nullptr)
+  {
+    write_studio_render_identity_matrix(output);
+    return studio_render_matrix_multiply_sentinel;
+  }
+
+  return studio_render_matrix_multiply_original(left, right, output);
 }
 
 void* texture_load_bits_hook(void* this_ptr, const char* cache_file_name, char** resolved_filename)
@@ -987,14 +1010,28 @@ Texture* create_named_render_target_texture_ex2_hook(
 
 void studio_render_draw_model_hook(void* this_ptr, void* results, const void* info, void* bone_to_world, void* flex_weights, void* flex_delayed_weights, const void* model_origin, int flags)
 {
-  (void)this_ptr;
-  (void)results;
-  (void)info;
-  (void)bone_to_world;
-  (void)flex_weights;
-  (void)flex_delayed_weights;
-  (void)model_origin;
-  (void)flags;
+  if (bone_to_world == nullptr)
+  {
+    return;
+  }
+
+  if (textmode_build || config.misc.exploits.null_graphics)
+  {
+    return;
+  }
+
+  if (studio_render_draw_model_original != nullptr)
+  {
+    studio_render_draw_model_original(
+      this_ptr,
+      results,
+      info,
+      bone_to_world,
+      flex_weights,
+      flex_delayed_weights,
+      model_origin,
+      flags);
+  }
 }
 
 void studio_render_draw_model_static_prop_hook(void* this_ptr, const void* draw_info, const void* model_to_world, int flags)
@@ -1613,89 +1650,168 @@ void restore_render_patches()
 
 void disable_file_system_hooks();
 void disable_texture_load_hook();
-void disable_bone_setup_attachment_matrices_guard();
+void disable_studio_render_blend_bones_guard();
+void disable_studio_render_matrix_multiply_guard();
+void install_studio_render_crash_guards_internal();
 void disable_material_system_render_target_hooks();
 void disable_studio_render_hooks();
 void disable_mdl_cache_touch_all_data_hook();
 
-void enable_bone_setup_attachment_matrices_guard()
+void enable_studio_render_blend_bones_guard()
 {
-  if (bone_setup_attachment_matrices_hooked ||
-      bone_setup_attachment_matrices_hook_failed ||
-      !module_is_loaded(client_module_name))
+  if (studio_render_blend_bones_hooked || !module_is_loaded("studiorender.so"))
   {
     return;
   }
 
-  bone_setup_attachment_matrices_original =
-    reinterpret_cast<bone_setup_attachment_matrices_fn>(
-      sigscan_module(client_module_name, sigs::bone_setup_attachment_matrices));
-  if (bone_setup_attachment_matrices_original == nullptr)
+  studio_render_blend_bones_original =
+    reinterpret_cast<studio_render_blend_bones_fn>(
+      sigscan_module("studiorender.so", sigs::studio_render_blend_bones));
+  if (studio_render_blend_bones_original == nullptr)
   {
-    bone_setup_attachment_matrices_hook_failed = true;
-    print("[nographics] bone-setup attachment matrices scan failed\n");
     return;
   }
 
-  bone_setup_attachment_matrices_funchook = funchook_create();
-  if (bone_setup_attachment_matrices_funchook == nullptr)
+  studio_render_blend_bones_funchook = funchook_create();
+  if (studio_render_blend_bones_funchook == nullptr)
   {
-    bone_setup_attachment_matrices_hook_failed = true;
-    bone_setup_attachment_matrices_original = nullptr;
-    print("[nographics] bone-setup attachment matrices hook create failed\n");
+    studio_render_blend_bones_original = nullptr;
+    print("[nographics] studio render blend bones guard create failed\n");
     return;
   }
 
   int result = funchook_prepare(
-    bone_setup_attachment_matrices_funchook,
-    reinterpret_cast<void**>(&bone_setup_attachment_matrices_original),
-    reinterpret_cast<void*>(bone_setup_attachment_matrices_hook));
+    studio_render_blend_bones_funchook,
+    reinterpret_cast<void**>(&studio_render_blend_bones_original),
+    reinterpret_cast<void*>(studio_render_blend_bones_hook));
   if (result != 0)
   {
-    bone_setup_attachment_matrices_hook_failed = true;
-    funchook_destroy(bone_setup_attachment_matrices_funchook);
-    bone_setup_attachment_matrices_funchook = nullptr;
-    bone_setup_attachment_matrices_original = nullptr;
-    print("[nographics] bone-setup attachment matrices hook prepare failed result=%d\n", result);
+    funchook_destroy(studio_render_blend_bones_funchook);
+    studio_render_blend_bones_funchook = nullptr;
+    studio_render_blend_bones_original = nullptr;
+    print("[nographics] studio render blend bones guard prepare failed result=%d\n", result);
     return;
   }
 
-  result = funchook_install(bone_setup_attachment_matrices_funchook, 0);
+  result = funchook_install(studio_render_blend_bones_funchook, 0);
   if (result != 0)
   {
-    bone_setup_attachment_matrices_hook_failed = true;
-    funchook_destroy(bone_setup_attachment_matrices_funchook);
-    bone_setup_attachment_matrices_funchook = nullptr;
-    bone_setup_attachment_matrices_original = nullptr;
-    print("[nographics] bone-setup attachment matrices hook install failed result=%d\n", result);
+    funchook_destroy(studio_render_blend_bones_funchook);
+    studio_render_blend_bones_funchook = nullptr;
+    studio_render_blend_bones_original = nullptr;
+    print("[nographics] studio render blend bones guard install failed result=%d\n", result);
     return;
   }
 
-  bone_setup_attachment_matrices_hooked = true;
-  print("[nographics] bone-setup attachment matrices guard enabled\n");
+  studio_render_blend_bones_hooked = true;
+  print("[nographics] studio render blend bones guard enabled\n");
 }
 
-void disable_bone_setup_attachment_matrices_guard()
+void disable_studio_render_blend_bones_guard()
 {
-  if (bone_setup_attachment_matrices_funchook == nullptr)
+  if (studio_render_blend_bones_funchook == nullptr)
   {
-    bone_setup_attachment_matrices_hooked = false;
+    studio_render_blend_bones_hooked = false;
     return;
   }
 
-  if (bone_setup_attachment_matrices_hooked)
+  if (studio_render_blend_bones_hooked)
   {
-    const int result = funchook_uninstall(bone_setup_attachment_matrices_funchook, 0);
+    const int result = funchook_uninstall(studio_render_blend_bones_funchook, 0);
     if (result != 0)
     {
-      print("[nographics] bone-setup attachment matrices uninstall failed result=%d\n", result);
+      print("[nographics] studio render blend bones guard uninstall failed result=%d\n", result);
     }
   }
 
-  funchook_destroy(bone_setup_attachment_matrices_funchook);
-  bone_setup_attachment_matrices_funchook = nullptr;
-  bone_setup_attachment_matrices_original = nullptr;
-  bone_setup_attachment_matrices_hooked = false;
+  funchook_destroy(studio_render_blend_bones_funchook);
+  studio_render_blend_bones_funchook = nullptr;
+  studio_render_blend_bones_original = nullptr;
+  studio_render_blend_bones_hooked = false;
+}
+
+void enable_studio_render_matrix_multiply_guard()
+{
+  if (studio_render_matrix_multiply_hooked || !module_is_loaded("studiorender.so"))
+  {
+    return;
+  }
+
+  studio_render_matrix_multiply_original =
+    reinterpret_cast<studio_render_matrix_multiply_fn>(
+      sigscan_module("studiorender.so", sigs::studio_render_matrix_multiply));
+  if (studio_render_matrix_multiply_original == nullptr)
+  {
+    return;
+  }
+
+  studio_render_matrix_multiply_funchook = funchook_create();
+  if (studio_render_matrix_multiply_funchook == nullptr)
+  {
+    studio_render_matrix_multiply_original = nullptr;
+    print("[nographics] studio render matrix multiply guard create failed\n");
+    return;
+  }
+
+  int result = funchook_prepare(
+    studio_render_matrix_multiply_funchook,
+    reinterpret_cast<void**>(&studio_render_matrix_multiply_original),
+    reinterpret_cast<void*>(studio_render_matrix_multiply_hook));
+  if (result != 0)
+  {
+    funchook_destroy(studio_render_matrix_multiply_funchook);
+    studio_render_matrix_multiply_funchook = nullptr;
+    studio_render_matrix_multiply_original = nullptr;
+    print("[nographics] studio render matrix multiply guard prepare failed result=%d\n", result);
+    return;
+  }
+
+  result = funchook_install(studio_render_matrix_multiply_funchook, 0);
+  if (result != 0)
+  {
+    funchook_destroy(studio_render_matrix_multiply_funchook);
+    studio_render_matrix_multiply_funchook = nullptr;
+    studio_render_matrix_multiply_original = nullptr;
+    print("[nographics] studio render matrix multiply guard install failed result=%d\n", result);
+    return;
+  }
+
+  studio_render_matrix_multiply_hooked = true;
+  print("[nographics] studio render matrix multiply guard enabled\n");
+}
+
+void disable_studio_render_matrix_multiply_guard()
+{
+  if (studio_render_matrix_multiply_funchook == nullptr)
+  {
+    studio_render_matrix_multiply_hooked = false;
+    return;
+  }
+
+  if (studio_render_matrix_multiply_hooked)
+  {
+    const int result = funchook_uninstall(studio_render_matrix_multiply_funchook, 0);
+    if (result != 0)
+    {
+      print("[nographics] studio render matrix multiply guard uninstall failed result=%d\n", result);
+    }
+  }
+
+  funchook_destroy(studio_render_matrix_multiply_funchook);
+  studio_render_matrix_multiply_funchook = nullptr;
+  studio_render_matrix_multiply_original = nullptr;
+  studio_render_matrix_multiply_hooked = false;
+}
+
+void install_studio_render_crash_guards_internal()
+{
+  if (!module_is_loaded("studiorender.so"))
+  {
+    return;
+  }
+
+  enable_studio_render_blend_bones_guard();
+  enable_studio_render_matrix_multiply_guard();
 }
 
 void enable_texture_load_hook()
@@ -2105,6 +2221,8 @@ void resolve_material_system_interface()
 
 void resolve_studio_render_interface()
 {
+  install_studio_render_crash_guards_internal();
+
   if (studio_render_interface != nullptr || !module_is_loaded("studiorender.so"))
   {
     return;
@@ -2124,6 +2242,11 @@ void resolve_mdl_cache_interface()
 }
 
 } // namespace
+
+void try_install_studio_render_crash_guard()
+{
+  install_studio_render_crash_guards_internal();
+}
 
 void initialize()
 {
@@ -2174,7 +2297,6 @@ void prepare_startup_patches()
     enable_material_system_render_target_hooks();
     enable_studio_render_hooks();
     enable_mdl_cache_touch_all_data_hook();
-    enable_bone_setup_attachment_matrices_guard();
     update_material_stub(true);
     apply_render_patches();
   }
@@ -2190,6 +2312,11 @@ void prepare_render_patches()
 
 void on_library_loaded(const char* library_path)
 {
+  if (library_basename(library_path) == "studiorender.so")
+  {
+    try_install_studio_render_crash_guard();
+  }
+
   if constexpr (textmode_build)
   {
     if (is_startup_patch_module(library_path))
@@ -2197,16 +2324,13 @@ void on_library_loaded(const char* library_path)
       prepare_startup_patches();
     }
   }
-  else
-  {
-    (void)library_path;
-  }
 }
 
 void update()
 {
   sync_nographics_toggles();
   initialize();
+  try_install_studio_render_crash_guard();
 
   const bool enabled = textmode_build || config.misc.exploits.null_graphics;
   if (enabled)
@@ -2220,7 +2344,6 @@ void update()
     enable_material_system_render_target_hooks();
     enable_studio_render_hooks();
     enable_mdl_cache_touch_all_data_hook();
-    enable_bone_setup_attachment_matrices_guard();
     update_material_stub(true);
     if (textmode_build || config.misc.exploits.null_graphics_render_stubs)
     {
@@ -2241,7 +2364,6 @@ void update()
   disable_mdl_cache_touch_all_data_hook();
   disable_texture_load_hook();
   disable_file_system_hooks();
-  disable_bone_setup_attachment_matrices_guard();
 }
 
 void shutdown()
@@ -2254,7 +2376,8 @@ void shutdown()
   disable_mdl_cache_touch_all_data_hook();
   disable_texture_load_hook();
   disable_file_system_hooks();
-  disable_bone_setup_attachment_matrices_guard();
+  disable_studio_render_blend_bones_guard();
+  disable_studio_render_matrix_multiply_guard();
 }
 
 bool is_enabled()

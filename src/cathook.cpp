@@ -999,7 +999,8 @@ bool initialize_module_runtime() {
   print("initialize_module_runtime initialize logger\n");
   cathook::core::initialize_logger(cathook::core::log_directory() / "cathook.log");
   print("initialize_module_runtime install exception handler\n");
-  cathook::core::exception_handler::install(cathook::core::log_directory() / "exception.log");
+  cathook::core::exception_handler::install(
+    cathook::core::log_directory() / ("exception-" + std::to_string(static_cast<unsigned long>(::getpid())) + ".log"));
   print("initialize_module_runtime initialize config store\n");
   cathook::core::initialize_config_store(cathook::core::root_directory());
   print("initialize_module_runtime load default config\n");
@@ -1862,6 +1863,8 @@ bool initialize_game_runtime() {
 
   rv = funchook_install(funchook, 0);
   error_assert(rv != 0, "Non-VMT related hooks failed\n");
+
+  nographics::try_install_studio_render_crash_guard();
 
   install_sdl_hooks();
   

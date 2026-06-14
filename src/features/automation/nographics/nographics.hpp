@@ -21,6 +21,7 @@ void prepare_render_patches();
 void on_library_loaded(const char* library_path);
 void update();
 void shutdown();
+void try_install_studio_render_crash_guard();
 bool is_enabled();
 bool should_skip_rendering_hooks();
 bool is_noshaderapi();

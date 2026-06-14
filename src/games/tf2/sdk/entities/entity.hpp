@@ -276,6 +276,10 @@ public:
   
   int draw_model(int flags) {
     void* renderable = this->get_renderable();
+    if (renderable == nullptr) {
+      return 0;
+    }
+
     void** vtable = *(void***)renderable;
 
     int (*draw_model_fn)(void*, int) = (int (*)(void*, int))vtable[10];

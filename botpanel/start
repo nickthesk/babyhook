@@ -1167,7 +1167,7 @@ restart_panel_if_running() {
 }
 
 configure_steam_txtmode_preload() {
-    if [ "${CAT_STEAM_TXTMODE:-1}" = "0" ]; then
+    if [ "${CAT_STEAM_TXTMODE:-0}" = "0" ]; then
         return
     fi
 

@@ -385,15 +385,18 @@ setup_cathook_root() {
     local owner_group=""
     local log_user="${SUDO_USER:-$USER}"
 
-    mkdir -p "$CATHOOK_BIN_DIR" "$CATHOOK_LOG_DIR" "$CATHOOK_ASSET_DIR"
+    mkdir -p "$CATHOOK_LOG_DIR" "$CATHOOK_ASSET_DIR"
+
+    if [ -f "$CATHOOK_LOG_DIR/exception.log" ] && [ -s "$CATHOOK_LOG_DIR/exception.log" ]; then
+        archive_stamp=$(date +%Y%m%d-%H%M%S)
+        mv "$CATHOOK_LOG_DIR/exception.log" "$CATHOOK_LOG_DIR/exception-$archive_stamp.log"
+    fi
 
     rm -f \
         "$CATHOOK_LOG_DIR/cathook.log" \
-        "$CATHOOK_LOG_DIR"/exception*.log \
         "$CATHOOK_LOG_DIR"/crash*.log \
         "$CATHOOK_LOG_DIR"/gdb-crash*.log \
         "$CATHOOK_ROOT"/cathook.log \
-        "$CATHOOK_ROOT"/exception*.log \
         "$CATHOOK_ROOT"/crash*.log \
         /tmp/cathook-"$log_user"-*-segfault.log
 

@@ -26,11 +26,16 @@ function display_number_from_text(value) {
 }
 
 const CATHOOK_ROOT = process.env.CATHOOK_ROOT || '/opt/cathook';
+const DEFAULT_SHARED_TF2_PATH = process.env.CAT_TF2_PATH || '/opt/steamapps/common/Team Fortress 2';
 const VISIBLE_WINDOWS = process.env.CAT_VISIBLE_WINDOWS === '1';
 const BOT_DISPLAY = process.env.DISPLAY || process.env.CAT_DEFAULT_DISPLAY || ':699';
 const BOT_XAUTHORITY = process.env.XAUTHORITY || path.join(process.env.HOME || '', '.Xauthority');
 const XPRA_LOG = process.env.CAT_XPRA_LOG || '/tmp/cat-catbot-xpra.log';
 const TEXTMODE_GAME = process.env.CAT_TEXTMODE_GAME !== '0';
+const BOT_TF2_OVERLAY_ENABLED = process.env.CAT_BOT_TF2_OVERLAY !== '0';
+const STEAM_TXTMODE_ENABLED = process.env.CAT_STEAM_TXTMODE === '1';
+const SKIP_DBUS_RUN_SESSION = process.env.CAT_SKIP_DBUS_RUN_SESSION === '1'
+    || (process.env.CAT_SKIP_DBUS_RUN_SESSION !== '0' && TEXTMODE_GAME);
 const GDB_CRASH_REPORTS = process.env.CAT_GDB_CRASH_REPORTS === '1' || config.gdb_crash_reports === true;
 const steam_window_options_default = VISIBLE_WINDOWS
     ? ''
@@ -88,7 +93,7 @@ function game_port_options(botid) {
     return `-tv_port ${tv_port} +tv_port ${tv_port} -port ${bot_port_base} +port ${bot_port_base} +clientport ${client_port_min}-${client_port_max}`;
 }
 
-const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --private-dev --read-write=/opt/cathook/ipc --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% --env=CAT_STM_STEAM_LOOP_SLEEP=%CAT_STM_STEAM_LOOP_SLEEP% --env=CAT_STM_STEAM_LOOP_SLEEP_US=%CAT_STM_STEAM_LOOP_SLEEP_US% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
+const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --private-dev --read-write=/opt/cathook/ipc --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime --env=CAT_SKIP_DBUS_RUN_SESSION=${SKIP_DBUS_RUN_SESSION ? '1' : '0'} ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% --env=CAT_STM_STEAM_LOOP_SLEEP=%CAT_STM_STEAM_LOOP_SLEEP% --env=CAT_STM_STEAM_LOOP_SLEEP_US=%CAT_STM_STEAM_LOOP_SLEEP_US% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if [ "$CAT_SKIP_DBUS_RUN_SESSION" = 1 ]; then exec "$@"; elif command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --private-dev --read-write=/opt/cathook/ipc --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
 const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync +volume 0 -noqueuedpacketprocessing -limitvsconst -nocrashdialog -noipx -threads 1 %GAME_PORT_OPTIONS% -nosteamcontroller -low -insecure +fps_max 30'`
 const LAUNCH_OPTIONS_GAME_STEAM = `firejail --join=%JAILNAME% bash -c '${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %STEAM% -applaunch 440'`
@@ -499,6 +504,9 @@ function steam_preload_value() {
     const extra_preload = (process.env.STEAM_LD_PRELOAD || '')
         .split(':')
         .filter((entry) => entry && path.basename(entry) !== library_name);
+    if (!STEAM_TXTMODE_ENABLED)
+        return extra_preload.join(':');
+
     return [library_name, ...extra_preload].join(':');
 }
 
@@ -543,6 +551,269 @@ function path_is_inside(child_path, parent_path) {
 
 function unique_paths(paths) {
     return [...new Set(paths.filter(Boolean))];
+}
+
+const tf2_videoconfig_linux_template = [
+    '"videoconfig"',
+    '{',
+    '\t"setting.cpu_level"\t\t"0"',
+    '\t"setting.gpu_level"\t\t"0"',
+    '\t"setting.mat_antialias"\t\t"0"',
+    '\t"setting.mat_aaquality"\t\t"0"',
+    '\t"setting.mat_forceaniso"\t\t"0"',
+    '\t"setting.mat_vsync"\t\t"0"',
+    '\t"setting.mat_triplebuffered"\t\t"0"',
+    '\t"setting.mat_grain_scale_override"\t\t"-1.000000"',
+    '\t"setting.gpu_mem_level"\t\t"0"',
+    '\t"setting.mem_level"\t\t"0"',
+    '\t"setting.mat_queue_mode"\t\t"0"',
+    '\t"setting.csm_quality_level"\t\t"0"',
+    '\t"setting.mat_software_aa_strength"\t\t"0"',
+    '\t"setting.mat_motion_blur_enabled"\t\t"0"',
+    '\t"setting.fullscreen"\t\t"0"',
+    '\t"setting.defaultres"\t\t"1"',
+    '\t"setting.defaultresheight"\t\t"480"',
+    '\t"setting.aspectratiomode"\t\t"0"',
+    '\t"setting.nowindowborder"\t\t"1"',
+    '\t"mat_hdr_level"\t\t"0"',
+    '\t"mat_colorcorrection"\t\t"0"',
+    '\t"VendorID"\t\t"0"',
+    '\t"DeviceID"\t\t"0"',
+    '\t"DXLevel_V1"\t\t"90"',
+    '\t"AutoConfigVersion"\t\t"1"',
+    '\t"ScreenDisplayIndex"\t\t"0"',
+    '\t"ScreenWidth"\t\t"1"',
+    '\t"ScreenHeight"\t\t"480"',
+    '\t"ScreenWindowed"\t\t"1"',
+    '\t"ScreenNoBorder"\t\t"1"',
+    '\t"ScreenMSAA"\t\t"0"',
+    '\t"ScreenMSAAQuality"\t\t"0"',
+    '\t"MotionBlur"\t\t"0"',
+    '\t"ShadowDepthTexture"\t\t"0"',
+    '\t"VRModeAdapter"\t\t"-1"',
+    '\t"ScreenMonitorGamma"\t\t"2.200000"',
+    '\t"mat_forceaniso"\t\t"0"',
+    '\t"mat_picmip"\t\t"2"',
+    '\t"mat_trilinear"\t\t"0"',
+    '\t"mat_vsync"\t\t"0"',
+    '\t"mat_forcehardwaresync"\t\t"0"',
+    '\t"mat_parallaxmap"\t\t"0"',
+    '\t"mat_reducefillrate"\t\t"1"',
+    '\t"r_lightmap_bicubic"\t\t"0"',
+    '\t"r_shadowrendertotexture"\t\t"0"',
+    '\t"r_rootlod"\t\t"2"',
+    '\t"r_waterforceexpensive"\t\t"0"',
+    '\t"r_waterforcereflectentities"\t\t"0"',
+    '\t"mat_antialias"\t\t"0"',
+    '\t"mat_aaquality"\t\t"0"',
+    '\t"mat_specular"\t\t"0"',
+    '\t"mat_bumpmap"\t\t"0"',
+    '}',
+    ''
+].join('\n');
+
+function shared_tf2_videoconfig_path(tf2_path) {
+    return path.join(tf2_path || DEFAULT_SHARED_TF2_PATH, 'tf', 'videoconfig_linux.cfg');
+}
+
+function bot_videoconfig_linux_path(bot_home) {
+    return path.join(bot_home, 'videoconfig_linux.cfg');
+}
+
+function videoconfig_linux_is_valid(text) {
+    return /^\s*"videoconfig"\s*\{/.test(text) && !text.includes('}\nsetting.');
+}
+
+function bot_tf2_overlay_path(bot_home) {
+    return path.join(bot_home, 'cat_tf2');
+}
+
+function ensure_symlink(link_path, target_path) {
+    const resolved_target = path.resolve(target_path);
+    try {
+        if (fs.existsSync(link_path)) {
+            const status = fs.lstatSync(link_path);
+            if (status.isSymbolicLink()) {
+                const current_target = fs.readlinkSync(link_path);
+                if (path.resolve(path.dirname(link_path), current_target) === resolved_target)
+                    return true;
+                fs.unlinkSync(link_path);
+            } else {
+                return true;
+            }
+        }
+
+        fs.symlinkSync(resolved_target, link_path);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+function ensure_videoconfig_linux_at(videoconfig_path, log_fn) {
+    if (!videoconfig_path)
+        return false;
+
+    let needs_write = false;
+    try {
+        if (!fs.existsSync(videoconfig_path)) {
+            needs_write = true;
+        } else {
+            const stat = fs.statSync(videoconfig_path);
+            if (stat.isSymbolicLink() || stat.size === 0) {
+                needs_write = true;
+            } else {
+                needs_write = !videoconfig_linux_is_valid(fs.readFileSync(videoconfig_path, 'utf8'));
+            }
+        }
+    } catch (error) {
+        if (log_fn)
+            log_fn(`[ERROR] Failed to inspect videoconfig_linux.cfg: ${error.message}`);
+        return false;
+    }
+
+    if (!needs_write)
+        return true;
+
+    try {
+        fs.mkdirSync(path.dirname(videoconfig_path), { recursive: true });
+        if (fs.existsSync(videoconfig_path)) {
+            const status = fs.lstatSync(videoconfig_path);
+            if (status.isSymbolicLink())
+                fs.unlinkSync(videoconfig_path);
+        }
+        const temporary_path = `${videoconfig_path}.tmp`;
+        fs.writeFileSync(temporary_path, tf2_videoconfig_linux_template, { mode: 0o644 });
+        fs.renameSync(temporary_path, videoconfig_path);
+        fs.chownSync(videoconfig_path, USER.uid, USER.uid);
+        if (log_fn)
+            log_fn(`Prepared videoconfig_linux.cfg at ${videoconfig_path}`);
+        return true;
+    } catch (error) {
+        if (log_fn)
+            log_fn(`[ERROR] Failed to write videoconfig_linux.cfg: ${error.message}`);
+        return false;
+    }
+}
+
+function ensure_bot_videoconfig_linux(bot_home, log_fn) {
+    if (!bot_home)
+        return false;
+
+    return ensure_videoconfig_linux_at(bot_videoconfig_linux_path(bot_home), log_fn);
+}
+
+function ensure_bot_tf2_overlay(bot_home, shared_tf2_path, log_fn) {
+    if (!bot_home || !shared_tf2_path || !tf2_install_ready(shared_tf2_path))
+        return null;
+
+    const overlay_path = bot_tf2_overlay_path(bot_home);
+    if (tf2_install_ready(overlay_path)) {
+        ensure_videoconfig_linux_at(path.join(overlay_path, 'tf', 'videoconfig_linux.cfg'), log_fn);
+        return overlay_path;
+    }
+
+    const overlay_tf_path = path.join(overlay_path, 'tf');
+    const shared_tf_path = path.join(shared_tf2_path, 'tf');
+    const overlay_existed = false;
+
+    try {
+        fs.mkdirSync(overlay_path, { recursive: true });
+        for (const entry_name of fs.readdirSync(shared_tf2_path)) {
+            if (entry_name === 'cat_tf2')
+                continue;
+
+            const shared_entry_path = path.join(shared_tf2_path, entry_name);
+            const overlay_entry_path = path.join(overlay_path, entry_name);
+            if (entry_name === 'tf') {
+                fs.mkdirSync(overlay_tf_path, { recursive: true });
+                for (const tf_entry_name of fs.readdirSync(shared_tf_path)) {
+                    if (tf_entry_name === 'videoconfig_linux.cfg')
+                        continue;
+
+                    const shared_tf_entry_path = path.join(shared_tf_path, tf_entry_name);
+                    const overlay_tf_entry_path = path.join(overlay_tf_path, tf_entry_name);
+                    ensure_symlink(overlay_tf_entry_path, shared_tf_entry_path);
+                }
+                continue;
+            }
+
+            ensure_symlink(overlay_entry_path, shared_entry_path);
+        }
+    } catch (error) {
+        if (log_fn)
+            log_fn(`[ERROR] Failed to prepare bot TF2 overlay at ${overlay_path}: ${error.message}`);
+        return null;
+    }
+
+    if (!ensure_videoconfig_linux_at(path.join(overlay_tf_path, 'videoconfig_linux.cfg'), log_fn))
+        return null;
+
+    if (!overlay_existed && tf2_install_ready(overlay_path) && log_fn)
+        log_fn(`Bot TF2 overlay ready at ${overlay_path} (shared install=${shared_tf2_path})`);
+
+    return tf2_install_ready(overlay_path) ? overlay_path : null;
+}
+
+function ensure_shared_tf2_videoconfig(tf2_path, log_fn) {
+    if (!tf2_path)
+        return false;
+
+    const videoconfig_path = shared_tf2_videoconfig_path(tf2_path);
+    let needs_write = false;
+    try {
+        if (!fs.existsSync(videoconfig_path)) {
+            needs_write = true;
+        } else {
+            const stat = fs.statSync(videoconfig_path);
+            if (stat.size === 0) {
+                needs_write = true;
+            } else {
+                needs_write = !videoconfig_linux_is_valid(fs.readFileSync(videoconfig_path, 'utf8'));
+            }
+        }
+    } catch (error) {
+        if (log_fn)
+            log_fn(`[ERROR] Failed to inspect shared videoconfig_linux.cfg: ${error.message}`);
+        return false;
+    }
+
+    if (!needs_write)
+        return true;
+
+    try {
+        fs.mkdirSync(path.dirname(videoconfig_path), { recursive: true });
+        try {
+            fs.chmodSync(videoconfig_path, 0o644);
+        } catch (error) {
+        }
+        const temporary_path = `${videoconfig_path}.tmp`;
+        fs.writeFileSync(temporary_path, tf2_videoconfig_linux_template, { mode: 0o644 });
+        fs.renameSync(temporary_path, videoconfig_path);
+        if (log_fn)
+            log_fn(`[WARN] Repaired shared videoconfig_linux.cfg at ${videoconfig_path}`);
+        return true;
+    } catch (error) {
+        if (log_fn)
+            log_fn(`[ERROR] Failed to write shared videoconfig_linux.cfg: ${error.message}`);
+        return false;
+    }
+}
+
+function close_steam_log_stream(bot) {
+    if (!bot.logSteam)
+        return;
+
+    const steam_process = bot.procFirejailSteam;
+    if (steam_process) {
+        if (steam_process.stdout)
+            steam_process.stdout.unpipe(bot.logSteam);
+        if (steam_process.stderr)
+            steam_process.stderr.unpipe(bot.logSteam);
+    }
+
+    bot.logSteam.end();
+    bot.logSteam = null;
 }
 
 function vdf_escape(value) {
@@ -2263,12 +2534,18 @@ class Bot extends EventEmitter {
         return true;
     }
 
-    gameLaunchPath() {
-        const bot_relative_path = path.relative(this.home, this.tf2Path);
-        if (path_is_inside(this.tf2Path, this.home))
-            return path.join(USER.home, bot_relative_path);
+    hostGameLaunchPath() {
+        if (BOT_TF2_OVERLAY_ENABLED && this.tf2Path) {
+            const overlay_path = bot_tf2_overlay_path(this.home);
+            if (tf2_install_ready(overlay_path))
+                return overlay_path;
+        }
 
         return this.tf2Path;
+    }
+
+    gameLaunchPath() {
+        return this.sandboxHomePath(this.hostGameLaunchPath());
     }
 
     gameBinary() {
@@ -2350,8 +2627,8 @@ class Bot extends EventEmitter {
             this.log(`Force-killed stale bot runtime processes before Steam launch count=${killed_count}`);
     }
 
-    pollSteamReady() {
-        const ready_patterns = [
+    steam_ready_log_patterns() {
+        return [
             'System startup time:',
             'Logged in OK',
             'logged in OK',
@@ -2361,22 +2638,128 @@ class Bot extends EventEmitter {
             'Steam signed in',
             'Refresh complete'
         ];
+    }
 
-        for (var logPath of this.existingSteamLogPaths()) {
+    steam_log_preferred_path(log_path) {
+        return path.basename(log_path) === 'error.log' ? path.dirname(log_path) : null;
+    }
+
+    scan_steam_startup_logs() {
+        const result = {
+            ready_log_path: null,
+            client_initialized_log_path: null,
+            account_disabled_e43_log_path: null,
+            login_error_5_log_path: null,
+            invalid_password_log_path: null,
+            x_client_cap_log_path: null,
+            fatal_startup_log_path: null,
+            webhelper_stall_log_path: null
+        };
+        const ready_patterns = this.steam_ready_log_patterns();
+        const auth_log_names = new Set(['connection_log.txt', 'console_log.txt', 'steamui_login.txt', 'webhelper_js.txt']);
+        const webhelper_log_names = new Set(['steamui_html.txt', 'webhelper.txt']);
+
+        for (const log_path of this.existingSteamLogPaths()) {
+            let log_text_large = null;
+            let log_text_small = null;
+            const read_large = () => {
+                if (log_text_large === null)
+                    log_text_large = read_file_tail(log_path, 262144);
+                return log_text_large;
+            };
+            const read_small = () => {
+                if (log_text_small === null)
+                    log_text_small = log_file_tail(log_path, steam_auth_log_scan_tail_lines);
+                return log_text_small;
+            };
+            const basename = path.basename(log_path);
+
             try {
-                const log_text = read_file_tail(logPath, 262144);
-                if (steam_client_initialized_from_log(log_text)) {
-                    this.mark_steam_client_initialized(path.basename(logPath) === 'error.log' ? path.dirname(logPath) : null, log_text);
-                    return true;
-                }
-                if (ready_patterns.some((pattern) => log_text.includes(pattern))) {
-                    this.markSteamReady(path.basename(logPath) === 'error.log' ? path.dirname(logPath) : null);
-                    return true;
+                const large_text = read_large();
+                if (!result.client_initialized_log_path && steam_client_initialized_from_log(large_text))
+                    result.client_initialized_log_path = log_path;
+                if (!result.ready_log_path && ready_patterns.some((pattern) => large_text.includes(pattern)))
+                    result.ready_log_path = log_path;
+                if (!result.fatal_startup_log_path && steam_startup_log_has_fatal_error(large_text))
+                    result.fatal_startup_log_path = log_path;
+                if (!result.x_client_cap_log_path && steam_log_has_x_client_cap_error(large_text))
+                    result.x_client_cap_log_path = log_path;
+                if (!result.webhelper_stall_log_path && webhelper_log_names.has(basename) && steam_webhelper_browser_stalled(large_text))
+                    result.webhelper_stall_log_path = log_path;
+
+                if (auth_log_names.has(basename)) {
+                    const small_text = read_small();
+                    if (!result.invalid_password_log_path && steam_log_has_invalid_password(small_text))
+                        result.invalid_password_log_path = log_path;
+                    if (!result.login_error_5_log_path && steam_log_has_login_error_5(small_text))
+                        result.login_error_5_log_path = log_path;
+                    if (!result.account_disabled_e43_log_path && steam_log_has_account_disabled_e43(small_text))
+                        result.account_disabled_e43_log_path = log_path;
                 }
             } catch (error) { }
         }
 
+        return result;
+    }
+
+    apply_steam_startup_scan(scan_result) {
+        if (!scan_result)
+            return false;
+
+        if (scan_result.client_initialized_log_path) {
+            const log_text = read_file_tail(scan_result.client_initialized_log_path, 262144);
+            this.mark_steam_client_initialized(this.steam_log_preferred_path(scan_result.client_initialized_log_path), log_text);
+            if (this.isSteamWorking)
+                return true;
+        }
+
+        if (scan_result.ready_log_path) {
+            this.markSteamReady(this.steam_log_preferred_path(scan_result.ready_log_path));
+            if (this.isSteamWorking)
+                return true;
+        }
+
+        if (scan_result.account_disabled_e43_log_path) {
+            this.mark_terminal_auth_error(STATE.ACCOUNT_DISABLED_E43, 'ACCOUNT DISABLED E43', scan_result.account_disabled_e43_log_path);
+            return true;
+        }
+
+        if (scan_result.login_error_5_log_path) {
+            this.restart_after_auth_relogin('login error 5', scan_result.login_error_5_log_path);
+            return true;
+        }
+
+        if (scan_result.invalid_password_log_path) {
+            this.restart_after_auth_relogin('invalid password E5', scan_result.invalid_password_log_path);
+            return true;
+        }
+
+        if (scan_result.x_client_cap_log_path && this.restart_after_x_client_cap(scan_result.x_client_cap_log_path))
+            return true;
+
+        if (scan_result.fatal_startup_log_path) {
+            this.log(`[ERROR] Steam startup fatal error detected in ${scan_result.fatal_startup_log_path}; stopping this bot instead of waiting with ${steam_login_timeout_description()}.`);
+            this.logSteamTails('Steam fatal startup log tail', 12);
+            this.shouldRun = false;
+            this.shouldRestart = false;
+            this.killSteam();
+            return true;
+        }
+
+        if (scan_result.webhelper_stall_log_path) {
+            this.log(`[ERROR] Steam webhelper browser startup stalled in ${scan_result.webhelper_stall_log_path}; restarting Steam with a fresh webhelper cache.`);
+            this.log_single_steam_tail('Steam webhelper stall log tail', scan_result.webhelper_stall_log_path);
+            this.clear_steam_webhelper_cache_before_start = true;
+            this.shouldRestart = true;
+            this.time_steamWorking = 0;
+            return true;
+        }
+
         return false;
+    }
+
+    pollSteamReady() {
+        return this.apply_steam_startup_scan(this.scan_steam_startup_logs());
     }
 
     spawnSteam() {
@@ -2413,6 +2796,9 @@ class Bot extends EventEmitter {
 
         var steambin = this.steamLaunchCommand();
         self.time_steam_launch_started = Date.now();
+        const steam_preload = steam_preload_value();
+        if (!STEAM_TXTMODE_ENABLED)
+            self.log('cat-steamtxtmode preload disabled (set CAT_STEAM_TXTMODE=1 to re-enable)');
 
         self.procFirejailSteam = child_process.spawn(([this.shouldResetSteam, this.shouldResetSteam = 0][0] ? LAUNCH_OPTIONS_STEAM_RESET : LAUNCH_OPTIONS_STEAM)
             // Username
@@ -2422,7 +2808,7 @@ class Bot extends EventEmitter {
             // Name of the firejail jail
             .replace("%JAILNAME%", shell_quote(self.name))
             .replace("%STEAM_LD_LIBRARY_PATH%", shell_quote(process.env.LD_LIBRARY_PATH || ''))
-            .replace("%LD_PRELOAD%", shell_quote(steam_preload_value()))
+            .replace("%LD_PRELOAD%", shell_quote(steam_preload))
             .replace("%CAT_STM_STEAM_LOOP_SLEEP%", shell_quote(steam_shim_loop_sleep))
             .replace("%CAT_STM_STEAM_LOOP_SLEEP_US%", shell_quote(String(steam_shim_loop_sleep_us)))
             // XOrg Display
@@ -2566,14 +2952,22 @@ class Bot extends EventEmitter {
             return;
         }
 
+        if (BOT_TF2_OVERLAY_ENABLED) {
+            ensure_bot_tf2_overlay(self.home, self.tf2Path, self.log.bind(self));
+        } else {
+            ensure_bot_videoconfig_linux(self.home, self.log.bind(self));
+            ensure_shared_tf2_videoconfig(self.tf2Path, self.log.bind(self));
+        }
+
+        const host_game_launch_path = self.hostGameLaunchPath();
         const game_launch_path = self.gameLaunchPath();
         const game_binary = self.gameBinary();
-        if (!fs.existsSync(path.join(self.tf2Path, 'tf_linux64'))) {
-            self.log(`[ERROR] Missing tf_linux64 in ${self.tf2Path}`);
+        if (!fs.existsSync(path.join(host_game_launch_path, 'tf_linux64'))) {
+            self.log(`[ERROR] Missing tf_linux64 in ${host_game_launch_path} (sandbox=${game_launch_path})`);
             self.shouldRestart = true;
             return;
         }
-        if (!self.validateGameDependencies(game_launch_path)) {
+        if (!self.validateGameDependencies(host_game_launch_path)) {
             self.shouldRun = false;
             self.shouldRestart = false;
             self.removeGamePreloadLibrary();
@@ -2660,6 +3054,7 @@ class Bot extends EventEmitter {
     handleSteamExit(code, signal) {
         const steam_process = this.procFirejailSteam;
         const launcher_pid = steam_process ? steam_process.pid : 0;
+        close_steam_log_stream(this);
         this.log(`Steam (${launcher_pid}) exited with code ${code}, signal ${signal}`);
         const steam_runtime = this.time_steam_launch_started ? Date.now() - this.time_steam_launch_started : 0;
         const steam_log_tail = log_file_tail('./logs/' + this.name + '.steam.log', 25);
@@ -2999,7 +3394,7 @@ class Bot extends EventEmitter {
         this.appendGdbLog(`\n========== ${new Date().toISOString()} crash pid=${pid} code=${code} signal=${signal} ==========\n`);
 
         const core_path = `/tmp/${this.name}.${pid}.core`;
-        const binary_path = path.join(this.gameLaunchPath(), this.gameBinary());
+        const binary_path = path.join(this.hostGameLaunchPath(), this.gameBinary());
         const script = [
             'set -u',
             'has_core=0',
@@ -3342,51 +3737,8 @@ class Bot extends EventEmitter {
                     const scan_steam_logs = !this.time_steam_log_scan || time > this.time_steam_log_scan;
                     if (scan_steam_logs) {
                         this.time_steam_log_scan = time + 2000;
-                        this.pollSteamReady();
-                        if (this.isSteamWorking)
+                        if (this.apply_steam_startup_scan(this.scan_steam_startup_logs()))
                             return;
-
-                        const account_disabled_e43_log_path = this.steam_account_disabled_e43_log_path();
-                        if (account_disabled_e43_log_path) {
-                            this.mark_terminal_auth_error(STATE.ACCOUNT_DISABLED_E43, 'ACCOUNT DISABLED E43', account_disabled_e43_log_path);
-                            return;
-                        }
-
-                        const login_error_5_log_path = this.steam_login_error_5_log_path();
-                        if (login_error_5_log_path) {
-                            this.restart_after_auth_relogin('login error 5', login_error_5_log_path);
-                            return;
-                        }
-
-                        const invalid_password_log_path = this.steam_invalid_password_log_path();
-                        if (invalid_password_log_path) {
-                            this.restart_after_auth_relogin('invalid password E5', invalid_password_log_path);
-                            return;
-                        }
-
-                        const x_client_cap_log_path = this.steam_x_client_cap_log_path();
-                        if (x_client_cap_log_path && this.restart_after_x_client_cap(x_client_cap_log_path))
-                            return;
-
-                        const fatal_steam_log_path = this.steamFatalStartupLogPath();
-                        if (fatal_steam_log_path) {
-                            this.log(`[ERROR] Steam startup fatal error detected in ${fatal_steam_log_path}; stopping this bot instead of waiting with ${steam_login_timeout_description()}.`);
-                            this.logSteamTails('Steam fatal startup log tail', 12);
-                            this.shouldRun = false;
-                            this.shouldRestart = false;
-                            this.killSteam();
-                            return;
-                        }
-
-                        const stalled_webhelper_log_path = this.steam_webhelper_stall_log_path();
-                        if (stalled_webhelper_log_path) {
-                            this.log(`[ERROR] Steam webhelper browser startup stalled in ${stalled_webhelper_log_path}; restarting Steam with a fresh webhelper cache.`);
-                            this.log_single_steam_tail('Steam webhelper stall log tail', stalled_webhelper_log_path);
-                            this.clear_steam_webhelper_cache_before_start = true;
-                            this.shouldRestart = true;
-                            this.time_steamWorking = 0;
-                            return;
-                        }
 
                         const stalled_login_ui_log_path = this.steam_login_ui_stall_log_path(time);
                         if (stalled_login_ui_log_path) {
@@ -3435,7 +3787,13 @@ class Bot extends EventEmitter {
                     if (!this.procFirejailGame) {
                         if (!this.steamClientInitialized && (!this.time_steam_log_scan || time > this.time_steam_log_scan)) {
                             this.time_steam_log_scan = time + 2000;
-                            this.pollSteamReady();
+                            const scan_result = this.scan_steam_startup_logs();
+                            if (scan_result.client_initialized_log_path) {
+                                const log_text = read_file_tail(scan_result.client_initialized_log_path, 262144);
+                                this.mark_steam_client_initialized(this.steam_log_preferred_path(scan_result.client_initialized_log_path), log_text);
+                            } else if (scan_result.ready_log_path) {
+                                this.markSteamReady(this.steam_log_preferred_path(scan_result.ready_log_path));
+                            }
                         }
                         if (!this.steamClientInitialized) {
                             if (!this.time_steamStatusLog || time > this.time_steamStatusLog) {
@@ -3541,7 +3899,7 @@ class Bot extends EventEmitter {
                             this.log('Waiting for game start delay');
                         else if (!steam_boot_delay_elapsed)
                             this.log('Waiting for Steam boot delay');
-                        this.time_steam_boot_status_log = time + 60000;
+                        this.time_steam_boot_status_log = time + 10000;
                     }
                 }
             }

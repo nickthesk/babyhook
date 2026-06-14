@@ -101,7 +101,7 @@ bool setup_bones_hook(void* me, void* bone_to_world_out, int max_bones, int bone
 
   if (max_bones < cached_bones->size)
   {
-    return false;
+    return setup_bones_original(me, bone_to_world_out, max_bones, bone_mask, current_time);
   }
 
   std::memcpy(

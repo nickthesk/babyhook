@@ -250,10 +250,12 @@ constexpr const char* character_info_open_crafting =
   "55 31 FF 48 89 E5 E8 ? ? ? ? 48 8D 15 ? ? ? ? 48 89 C7 48 05 30 03 00 00 48 85 FF 48 0F 45 F8 48 8B 07 48 8B 00 48 39 D0 75 ? 5D 48 81 EF 30 03 00 00 31 D2 BE 02 00 00 00";
 constexpr const char* character_info_open_armory =
   "55 31 FF 48 89 E5 E8 ? ? ? ? 48 8D 15 ? ? ? ? 48 89 C7 48 05 30 03 00 00 48 85 FF 48 0F 45 F8 48 8B 07 48 8B 00 48 39 D0 75 ? 5D 48 81 EF 30 03 00 00 31 D2 BE 03 00 00 00";
-constexpr const char* bone_setup_attachment_matrices =
-  "55 48 89 E5 41 57 41 56 41 55 4D 89 C5 41 54 4D 89 CC 53 48 89 FB 48 81 EC 18 10 00 00";
 constexpr const char* studio_render_draw_model_wrapper =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 18 03 00 00 4C 8D 25 ? ? ? ? 48 89 95";
+constexpr const char* studio_render_blend_bones =
+  "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC 48 44 8B B6 98 00 00 00";
+constexpr const char* studio_render_matrix_multiply =
+  "F3 0F 7E 4F 10 F3 0F 7E 3E F3 0F 7E 46 10 0F 16 4F 18 F3 0F 7E 66 20 0F 16 7E 08 44 0F 28 D9";
 constexpr const char* client_econ_panel_flex_primary =
   "80 BF 08 1C 00 00 00 74 07 31 C0 C3 0F 1F 40 00 55 48 89 E5 41 57 41 56 4C 8D B7 98 15 00 00 41 55 41 54 49 89 FC";
 constexpr const char* client_econ_panel_flex_attachments =

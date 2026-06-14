@@ -88,6 +88,75 @@ bool path_base_matches(const char* path, const char* name)
   return std::strcmp(base, name) == 0;
 }
 
+bool command_line_has_noshaderapi()
+{
+  FILE* cmdline = std::fopen("/proc/self/cmdline", "rb");
+  if (cmdline == nullptr)
+  {
+    return false;
+  }
+
+  char argument[512]{};
+  std::size_t length = 0;
+  int value = 0;
+  while ((value = std::fgetc(cmdline)) != EOF)
+  {
+    if (value == '\0')
+    {
+      if (length > 0 && std::strcmp(argument, "-noshaderapi") == 0)
+      {
+        std::fclose(cmdline);
+        return true;
+      }
+      length = 0;
+      argument[0] = '\0';
+      continue;
+    }
+
+    if (length + 1 < sizeof(argument))
+    {
+      argument[length++] = static_cast<char>(value);
+      argument[length] = '\0';
+    }
+  }
+
+  std::fclose(cmdline);
+  return length > 0 && std::strcmp(argument, "-noshaderapi") == 0;
+}
+
+bool is_shaderapivk_path(const char* path)
+{
+  return path_base_matches(path, "shaderapivk.so") || path_base_matches(path, "shaderapivk");
+}
+
+const char* redirect_shader_library_path(const char* path)
+{
+  if (path == nullptr || !command_line_has_noshaderapi() || !is_shaderapivk_path(path))
+  {
+    return path;
+  }
+
+  static thread_local char redirected_path[4096]{};
+  const char* slash = std::strrchr(path, '/');
+  if (slash == nullptr)
+  {
+    std::strncpy(redirected_path, "shaderapiempty.so", sizeof(redirected_path) - 1);
+  }
+  else
+  {
+    const std::size_t prefix_length = static_cast<std::size_t>(slash - path) + 1U;
+    if (prefix_length >= sizeof(redirected_path))
+    {
+      return path;
+    }
+    std::memcpy(redirected_path, path, prefix_length);
+    std::strncpy(redirected_path + prefix_length, "shaderapiempty.so", sizeof(redirected_path) - prefix_length - 1);
+  }
+
+  log_line("redirect shader api: %s -> %s", path, redirected_path);
+  return redirected_path;
+}
+
 bool current_process_is_steam()
 {
   const int cached = g_is_steam_process.load(std::memory_order_relaxed);
@@ -293,7 +362,8 @@ CAT_STM_EXPORT gl_proc glXGetProcAddress(const unsigned char* name)
 CAT_STM_EXPORT void* dlopen(const char* filename, int flags)
 {
   static dlopen_fn real = nullptr;
-  void* result = next_symbol(real, "dlopen") != nullptr ? real(filename, flags) : nullptr;
+  const char* load_path = redirect_shader_library_path(filename);
+  void* result = next_symbol(real, "dlopen") != nullptr ? real(load_path, flags) : nullptr;
   if (result != nullptr && !settings().disabled && settings().patches && path_base_matches(filename, "libcef.so"))
   {
     apply_steam_patches();
@@ -304,7 +374,8 @@ CAT_STM_EXPORT void* dlopen(const char* filename, int flags)
 CAT_STM_EXPORT void* dlmopen(long namespace_id, const char* filename, int flags)
 {
   static dlmopen_fn real = nullptr;
-  void* result = next_symbol(real, "dlmopen") != nullptr ? real(namespace_id, filename, flags) : nullptr;
+  const char* load_path = redirect_shader_library_path(filename);
+  void* result = next_symbol(real, "dlmopen") != nullptr ? real(namespace_id, load_path, flags) : nullptr;
   if (result != nullptr && !settings().disabled && settings().patches && path_base_matches(filename, "libcef.so"))
   {
     apply_steam_patches();

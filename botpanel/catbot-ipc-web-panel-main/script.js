@@ -495,7 +495,7 @@ function refreshComplete() {
 $(function() {
 	updateData();
     status.info('init done');
-	setInterval(updateData, 1000 * 2);
+	setInterval(updateData, 1000);
 	$('#console').on('keypress', function(e) {
 		if (e.keyCode === '13') {
 			runCommand();
