@@ -28,6 +28,7 @@ class BotManager {
         this.restart_window_start = Date.now();
         this.restart_window_count = 0;
         this.start_queue = [];
+        this.start_lane = [];
         this.granted_starts_this_tick = 0;
         this.last_start_wave_time = 0;
         this.last_steam_boot_time = 0;
@@ -122,21 +123,55 @@ class BotManager {
         this.bots.sort((left, right) => right.botid - left.botid);
     }
 
-    refresh_start_queue() {
-        const queue = [];
+    refresh_start_lane() {
+        const lane = [];
         for (const bot of this.bots) {
             if (!bot.shouldRun || bot.shouldRestart)
                 continue;
             if (bot.procFirejailSteam || bot.procFirejailGame)
                 continue;
+            if (bot.terminal_auth_state)
+                continue;
             if (!bot.account)
                 continue;
             if (bot.state === Bot.states.NO_ACCOUNT)
                 continue;
-            queue.push(bot);
+            lane.push(bot);
         }
-        queue.sort((left, right) => right.botid - left.botid);
-        this.start_queue = queue;
+        lane.sort((left, right) => right.botid - left.botid);
+        this.start_lane = lane;
+        this.start_queue = lane;
+    }
+
+    higher_bot_blocks_steam_start(bot) {
+        for (const other of this.bots) {
+            if (other.botid <= bot.botid)
+                continue;
+            if (!other.shouldRun)
+                continue;
+            if (other.terminal_auth_state)
+                continue;
+            if (other.shouldRestart)
+                return true;
+            if (other.procFirejailSteam || other.procFirejailGame)
+                continue;
+            return true;
+        }
+        return false;
+    }
+
+    can_bot_begin_restart(bot) {
+        if (!bot.shouldRestart || !bot.shouldRun)
+            return false;
+
+        for (const other of this.bots) {
+            if (other.botid <= bot.botid)
+                continue;
+            if (!other.shouldRun || !other.shouldRestart)
+                continue;
+            return false;
+        }
+        return true;
     }
 
     count_active_starts() {
@@ -158,7 +193,7 @@ class BotManager {
     }
 
     start_queue_index(bot) {
-        return this.start_queue.indexOf(bot);
+        return this.start_lane.indexOf(bot);
     }
 
     start_wave_delay_elapsed(time) {
@@ -189,7 +224,10 @@ class BotManager {
     }
 
     can_bot_begin_steam_boot(bot, time) {
-        const rank = this.start_queue_index(bot);
+        if (this.higher_bot_blocks_steam_start(bot))
+            return false;
+
+        const rank = this.start_lane.indexOf(bot);
         if (rank < 0)
             return false;
 
@@ -202,17 +240,11 @@ class BotManager {
         if (available <= 0)
             return false;
 
-        if (rank < pending)
-            return false;
-        if (rank >= pending + available)
+        if (rank >= available)
             return false;
 
-        if (active_starts + pending === 0) {
-            if (rank !== 0)
-                return false;
-            if (!this.start_wave_delay_elapsed(time))
-                return false;
-        }
+        if (active_starts + pending === 0 && !this.start_wave_delay_elapsed(time))
+            return false;
 
         if (pending > 0 && !this.steam_boot_delay_elapsed(time))
             return false;
@@ -444,7 +476,7 @@ class BotManager {
         const process_table = Bot.read_process_table();
         const children_by_parent = Bot.build_process_children_by_parent(process_table);
         this.granted_starts_this_tick = 0;
-        this.refresh_start_queue();
+        this.refresh_start_lane();
 
         const bots_by_id_desc = this.bots.slice().sort((left, right) => right.botid - left.botid);
         for (const b of bots_by_id_desc) {

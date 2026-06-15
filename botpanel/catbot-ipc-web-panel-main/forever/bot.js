@@ -3958,8 +3958,9 @@ class Bot extends EventEmitter {
                     } else if (this.account && (!this.time_steam_boot_status_log || time > this.time_steam_boot_status_log)) {
                         if (!manager_allows_start && this.manager) {
                             const queue_index = this.manager.start_queue_index(this);
-                            const queue_head = this.manager.start_queue.length ? this.manager.start_queue[0].name : 'none';
-                            this.log(`Waiting for start queue position ${queue_index + 1}/${this.manager.start_queue.length}, head=${queue_head}, active=${this.manager.count_active_starts()}/${max_concurrent_bots()}`);
+                            const queue_head = this.manager.start_lane.length ? this.manager.start_lane[0].name : 'none';
+                            const blocked_by = this.manager.higher_bot_blocks_steam_start(this) ? 'higher-id bot pending' : 'start slots full';
+                            this.log(`Waiting for start lane position ${queue_index + 1}/${this.manager.start_lane.length}, head=${queue_head}, ${blocked_by}, active=${this.manager.count_active_starts()}/${max_concurrent_bots()}`);
                         } else if (!this.account)
                             this.log('Waiting for account');
                         this.time_steam_boot_status_log = time + 10000;
@@ -3968,19 +3969,27 @@ class Bot extends EventEmitter {
             }
         }
         else {
-            if (this.procFirejailGame) {
-                this.killGame('restart requested while game is running');
+            if (!this.manager || this.manager.can_bot_begin_restart(this)) {
+                if (this.procFirejailGame) {
+                    this.killGame('restart requested while game is running');
+                }
+                if (this.procFirejailSteam) {
+                    this.killSteam();
+                }
+                this.state = this.terminal_auth_state || STATE.STOPPING;
+                if (!this.procFirejailSteam && !this.procFirejailGame) {
+                    this.state = this.terminal_auth_state || STATE.RESTARTING;
+                    this.shouldRestart = false;
+                    if (this.account)
+                        this.account = null;
+                }
+            } else {
+                if (!this.time_steam_boot_status_log || time > this.time_steam_boot_status_log) {
+                    this.log('Restart queued; waiting for higher-id bots to finish restarting first');
+                    this.time_steam_boot_status_log = time + 10000;
+                }
+                this.state = this.terminal_auth_state || STATE.INITIALIZED;
             }
-            if (this.procFirejailSteam) {
-                this.killSteam();
-            }
-            this.state = this.terminal_auth_state || STATE.STOPPING;
-            if (!this.procFirejailSteam && !this.procFirejailGame) {
-                this.state = this.terminal_auth_state || (this.shouldRestart ? STATE.RESTARTING : STATE.INITIALIZED);
-                this.shouldRestart = false;
-            }
-            if (this.account)
-                this.account = null;
         }
     }
 
