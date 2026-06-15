@@ -937,9 +937,6 @@ function start_delay_allows_launch(time) {
     if (!DELAY_START_TIME)
         return true;
 
-    if (module.exports.currentlyStartingGames > 0)
-        return true;
-
     return module.exports.lastStartTime + DELAY_START_TIME < time;
 }
 
@@ -991,7 +988,8 @@ function read_proc_nspids(pid) {
     }
 }
 
-const PROCESS_TABLE_CACHE_MS = Number.parseInt(process.env.CAT_PROCESS_TABLE_CACHE_MS || '750', 10);
+const PROCESS_TABLE_CACHE_MS = Number.parseInt(process.env.CAT_PROCESS_TABLE_CACHE_MS || '1500', 10);
+let process_table_cache_ms = PROCESS_TABLE_CACHE_MS;
 let cached_process_table = null;
 let cached_process_table_time = 0;
 let cached_children_by_parent = null;
@@ -1002,9 +1000,14 @@ function invalidate_process_table_cache() {
     cached_children_by_parent = null;
 }
 
+function set_process_table_cache_ms(value) {
+    if (Number.isFinite(value) && value > 0)
+        process_table_cache_ms = value;
+}
+
 function read_process_table(force_refresh) {
     const now = Date.now();
-    if (!force_refresh && cached_process_table && (now - cached_process_table_time) < PROCESS_TABLE_CACHE_MS)
+    if (!force_refresh && cached_process_table && (now - cached_process_table_time) < process_table_cache_ms)
         return cached_process_table;
 
     const processes = new Map();
@@ -1484,6 +1487,8 @@ class Bot extends EventEmitter {
         this.ipcID = -1;
         this.time_ipc_identity_missing = 0;
         this.time_ipc_peer_missing = 0;
+        this.ipc_peer_restart_deferred = false;
+        this.manager = null;
 
         this.gameStarted = 0;
         this.gamePid = -1;
@@ -3189,22 +3194,32 @@ class Bot extends EventEmitter {
         if (!this.ipcState || !this.ipcState.heartbeat || !ipc_heartbeat_stale_timeout)
             return false;
 
+        if (this.manager && !this.manager.ipc_queries_healthy())
+            return false;
+
         return time - this.ipcState.heartbeat * 1000 > ipc_heartbeat_stale_timeout;
     }
 
-    ipc_identity_missing() {
-        return !this.ipcState || !this.ipcState.friendid || this.ipcState.friendid === 0;
+    clear_ipc_peer_missing() {
+        this.time_ipc_peer_missing = 0;
+        this.ipc_peer_restart_deferred = false;
     }
 
-    mark_ipc_peer_missing(time) {
+    mark_ipc_peer_missing(time, manager) {
         if (!this.ipcState || this.ipcID < 0 || this.shouldRestart)
+            return;
+
+        if (manager && !manager.ipc_queries_healthy())
             return;
 
         if (!this.time_ipc_peer_missing)
             this.time_ipc_peer_missing = time;
 
-        if (time - this.time_ipc_peer_missing > 5000)
-            this.request_restart(`IPC peer ${this.ipcID} disappeared from server query`);
+        const grace_ms = manager ? manager.ipc_peer_missing_grace_ms() : 15000;
+        if (time - this.time_ipc_peer_missing > grace_ms) {
+            if (!this.request_restart(`IPC peer ${this.ipcID} disappeared from server query`))
+                this.ipc_peer_restart_deferred = true;
+        }
     }
 
     steam_boot_in_progress() {
@@ -3215,7 +3230,15 @@ class Bot extends EventEmitter {
         return this.state === STATE.STARTING && !!this.procFirejailSteam;
     }
 
+    ipc_identity_missing() {
+        return !this.ipcState || !this.ipcState.friendid || this.ipcState.friendid === 0;
+    }
+
     request_restart(reason) {
+        if (this.manager && !this.manager.allow_restart(this, reason))
+            return false;
+
+        this.ipc_peer_restart_deferred = false;
         this.lastRestartReason = reason || 'unspecified restart';
         this.log(`Restart requested: ${reason}`);
         this.clear_ipc_state();
@@ -3224,6 +3247,7 @@ class Bot extends EventEmitter {
             this.shouldRestart = true;
         else
             this.shouldRun = true;
+        return true;
     }
 
     reset() {
@@ -3765,6 +3789,8 @@ class Bot extends EventEmitter {
     // Apply current state
     update(processes, children_by_parent) {
         var time = Date.now();
+        if (this.ipc_peer_restart_deferred && this.manager)
+            this.request_restart(`IPC peer ${this.ipcID} disappeared from server query (deferred)`);
         if (this.shouldRun && !this.shouldRestart) {
             this.adopt_runtime_processes(processes, children_by_parent);
             if (this.procFirejailSteam) {
@@ -3876,9 +3902,11 @@ class Bot extends EventEmitter {
                                     return;
                                 }
                                 if (this.ipc_identity_missing()) {
-                                    if (!this.time_ipc_identity_missing)
+                                    if (this.manager && !this.manager.ipc_queries_healthy()) {
+                                        this.time_ipc_identity_missing = 0;
+                                    } else if (!this.time_ipc_identity_missing) {
                                         this.time_ipc_identity_missing = time;
-                                    if (ipc_identity_timeout && time - this.time_ipc_identity_missing > ipc_identity_timeout) {
+                                    } else if (ipc_identity_timeout && time - this.time_ipc_identity_missing > ipc_identity_timeout) {
                                         this.request_restart(`IPC identity missing for ${Math.floor((time - this.time_ipc_identity_missing) / 1000)} seconds`);
                                         return;
                                     }
@@ -3910,16 +3938,17 @@ class Bot extends EventEmitter {
                         this.log(`Preparing to restart with account generation ${this.account_generation}...`);
                         return;
                     }
-                    const start_slots_available = module.exports.currentlyStartingGames < max_concurrent_bots();
-                    const start_delay_elapsed = start_delay_allows_launch(time);
-                    const steam_boot_slots_available = module.exports.currentlyBootingSteam < max_steam_boots();
-                    const steam_boot_delay_elapsed = steam_boot_delay_allows_launch(time);
-                    if (this.account && start_slots_available && steam_boot_slots_available && start_delay_elapsed && steam_boot_delay_elapsed) {
-                        module.exports.lastStartTime = time;
-                        module.exports.lastSteamBootTime = time;
+                    const manager_allows_start = !this.manager || this.manager.can_bot_begin_steam_boot(this, time);
+                    if (this.account && manager_allows_start) {
                         this.state = STATE.STARTING;
                         this.reset();
                         if (this.spawnSteam()) {
+                            if (this.manager)
+                                this.manager.notify_steam_boot_granted(this, time);
+                            else {
+                                module.exports.lastStartTime = time;
+                                module.exports.lastSteamBootTime = time;
+                            }
                             module.exports.currentlyStartingGames++;
                             module.exports.currentlyBootingSteam++;
                             this.time_steam_login_timeout_started = time;
@@ -3927,14 +3956,12 @@ class Bot extends EventEmitter {
                             this.time_steamAssumeReady = TIMEOUT_STEAM_ASSUME_READY ? time + TIMEOUT_STEAM_ASSUME_READY : 0;
                         }
                     } else if (this.account && (!this.time_steam_boot_status_log || time > this.time_steam_boot_status_log)) {
-                        if (!start_slots_available)
-                            this.log(`Waiting for game start slot, active_starts=${module.exports.currentlyStartingGames}/${max_concurrent_bots()}`);
-                        else if (!steam_boot_slots_available)
-                            this.log(`Waiting for Steam boot slot, active_boots=${module.exports.currentlyBootingSteam}/${max_steam_boots()}`);
-                        else if (!start_delay_elapsed)
-                            this.log('Waiting for game start delay');
-                        else if (!steam_boot_delay_elapsed)
-                            this.log('Waiting for Steam boot delay');
+                        if (!manager_allows_start && this.manager) {
+                            const queue_index = this.manager.start_queue_index(this);
+                            const queue_head = this.manager.start_queue.length ? this.manager.start_queue[0].name : 'none';
+                            this.log(`Waiting for start queue position ${queue_index + 1}/${this.manager.start_queue.length}, head=${queue_head}, active=${this.manager.count_active_starts()}/${max_concurrent_bots()}`);
+                        } else if (!this.account)
+                            this.log('Waiting for account');
                         this.time_steam_boot_status_log = time + 10000;
                     }
                 }
@@ -3981,9 +4008,13 @@ module.exports.currentlyStartingGames = 0;
 module.exports.currentlyBootingSteam = 0;
 module.exports.lastStartTime = 0;
 module.exports.lastSteamBootTime = 0;
+module.exports.start_wave_delay_ms = DELAY_START_TIME;
+module.exports.steam_boot_delay_ms = STEAM_BOOT_DELAY;
+module.exports.max_steam_boots = max_steam_boots;
 module.exports.read_process_table = read_process_table;
 module.exports.build_process_children_by_parent = build_process_children_by_parent;
 module.exports.invalidate_process_table_cache = invalidate_process_table_cache;
+module.exports.set_process_table_cache_ms = set_process_table_cache_ms;
 module.exports.states = STATE;
 Object.defineProperty(module.exports, 'MAX_CONCURRENT_BOTS', {
     get: function() { return max_concurrent_bots(); },

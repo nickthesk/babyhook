@@ -77,10 +77,12 @@ function connect_ipc_console() {
     });
 }
 
-cc.once('init', () => {
+cc.on('init', () => {
     connect_ipc_console();
 });
-cc.on('exit', () => { });
+cc.on('exit', () => {
+    console.log('[!] cathook console disconnected; waiting for automatic respawn');
+});
 
 app.post('/api/direct/:command', function (req, res) {
     cc.command(req.params.command, req.body, function (data) {
