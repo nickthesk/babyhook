@@ -160,6 +160,23 @@ class app {
 			}
 		});
 
+		app.get('/api/bot/:bot/autorestart', function (req, res) {
+			var bot = manager.bot(req.params.bot);
+			if (bot) {
+				if (bot.auto_restart('panel nonresponsive autorestart')) {
+					res.status(200).end();
+				} else {
+					res.status(409).send({
+						'error': 'Bot is not eligible for automatic restart'
+					});
+				}
+			} else {
+				res.status(400).send({
+					'error': 'Bot does not exist'
+				})
+			}
+		});
+
 		app.get('/api/bot/:bot/terminate', function (req, res) {
 			if (req.params.bot === "all") {
 				for (var bot of manager.bots)

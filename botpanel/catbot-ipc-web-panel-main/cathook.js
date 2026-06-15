@@ -95,7 +95,11 @@ class CathookConsole extends EventEmitter {
 
     respawn() {
         this.respawning = true;
-        this.fail_in_flight_command('cathook console respawning');
+        const entry = this.in_flight_entry;
+        this.in_flight_entry = null;
+        this.command_in_flight = false;
+        if (entry && entry.callback)
+            entry.callback({ status: 'error', error: 'cathook console respawning' });
         if (this.process) {
             try {
                 this.process.removeAllListeners();
@@ -159,7 +163,7 @@ class CathookConsole extends EventEmitter {
                 this.command_in_flight = false;
                 this.in_flight_entry = null;
                 entry.callback({ status: 'error', error: 'cathook console command timed out' });
-                this.flush_command_queue();
+                this.respawn();
             }, this.ipc_command_timeout_ms());
             if (callback_timeout.unref)
                 callback_timeout.unref();

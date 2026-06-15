@@ -3194,6 +3194,9 @@ class Bot extends EventEmitter {
         if (!this.ipcState || !this.ipcState.heartbeat || !ipc_heartbeat_stale_timeout)
             return false;
 
+        if (!this.auto_restart_allowed())
+            return false;
+
         if (this.manager && !this.manager.ipc_queries_healthy())
             return false;
 
@@ -3207,6 +3210,9 @@ class Bot extends EventEmitter {
 
     mark_ipc_peer_missing(time, manager) {
         if (!this.ipcState || this.ipcID < 0 || this.shouldRestart)
+            return;
+
+        if (!this.auto_restart_allowed())
             return;
 
         if (manager && !manager.ipc_queries_healthy())
@@ -3231,11 +3237,17 @@ class Bot extends EventEmitter {
     }
 
     ipc_identity_missing() {
+        if (!this.auto_restart_allowed())
+            return false;
+
         return !this.ipcState || !this.ipcState.friendid || this.ipcState.friendid === 0;
     }
 
-    request_restart(reason) {
-        if (this.manager && !this.manager.allow_restart(this, reason))
+    request_restart(reason, bypass_restart_budget, start_if_stopped) {
+        if (!this.shouldRun && !start_if_stopped)
+            return false;
+
+        if (!bypass_restart_budget && this.manager && !this.manager.allow_restart(this, reason))
             return false;
 
         this.ipc_peer_restart_deferred = false;
@@ -3248,6 +3260,22 @@ class Bot extends EventEmitter {
         else
             this.shouldRun = true;
         return true;
+    }
+
+    auto_restart_allowed() {
+        return Boolean(this.shouldRun &&
+            !this.shouldRestart &&
+            !this.terminal_auth_state &&
+            this.state === STATE.RUNNING &&
+            this.procFirejailGame &&
+            this.ipcState);
+    }
+
+    auto_restart(reason) {
+        if (!this.auto_restart_allowed())
+            return false;
+
+        return this.request_restart(reason || 'automatic restart');
     }
 
     reset() {
@@ -3994,7 +4022,7 @@ class Bot extends EventEmitter {
     }
 
     restart() {
-        this.request_restart('manual/API restart');
+        this.request_restart('manual/API restart', true, true);
     }
     stop() {
         this.shouldRun = false;

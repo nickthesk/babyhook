@@ -240,11 +240,18 @@ class BotManager {
         if (available <= 0)
             return false;
 
-        if (rank >= available)
+        if (rank < pending)
             return false;
 
-        if (active_starts + pending === 0 && !this.start_wave_delay_elapsed(time))
+        if (rank >= pending + available)
             return false;
+
+        if (active_starts + pending === 0) {
+            if (rank !== 0)
+                return false;
+            if (!this.start_wave_delay_elapsed(time))
+                return false;
+        }
 
         if (pending > 0 && !this.steam_boot_delay_elapsed(time))
             return false;
@@ -532,7 +539,6 @@ class BotManager {
             try {
                 const bot = new Bot.bot(this.next_bot_id_for_fill());
                 bot.manager = this;
-                bot.shouldRun = true;
                 this.bots.push(bot);
             } catch (error) {
                 this.log_exception(`failed to create bot b${this.bots.length}`, error);

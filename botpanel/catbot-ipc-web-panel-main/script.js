@@ -381,7 +381,7 @@ function update_ban_tracker_data(row, data) {
 		.text(text);
 }
 
-function updateIPCData(row, id, data) {
+function updateIPCData(row, id, data, state) {
 	if (!data) {
 		return;
 	}
@@ -396,12 +396,14 @@ function updateIPCData(row, id, data) {
 		row.find('.client-status').removeClass('error').addClass('warning').text('Warning ' + time);
 	} else {
 		row.find('.client-status').removeClass('warning').addClass('error').text('Dead ' + time);
-		if ($('#autorestart-bots').prop('checked')) {
+		if (state === 5 && $('#autorestart-bots').prop('checked')) {
 			if ((Date.now() - ts_injected * 1000 > 20) && data.heartbeat && (!autorestart[row.attr('data-id')] || (Date.now() - autorestart[row.attr('data-id')]) > 1000 * 5)) {
 				autorestart[row.attr('data-id')] = Date.now();
 				console.log('auto-restarting', row.attr('data-id'));
-			    request(`api/bot/${row.attr('data-id')}/restart`, function(e, r, b) {
-					if (e) {
+			    request(`api/bot/${row.attr('data-id')}/autorestart`, function(e, r, b) {
+					if (request_failed(e, r)) {
+						if (r && r.statusCode === 409)
+							return;
 						console.log(e, b);
 						status.error('Error restarting bot ' + JSON.stringify(data));
 					} else {
@@ -478,7 +480,7 @@ function updateUserData(bot, data) {
 		row.find('.active').text('N/A');
 	}
 	update_ban_tracker_data(row, data.ban_tracker);
-	updateIPCData(row, data.ipcID, data.ipc);
+	updateIPCData(row, data.ipcID, data.ipc, data.state);
 }
 
 function addClientRow(botid) {
