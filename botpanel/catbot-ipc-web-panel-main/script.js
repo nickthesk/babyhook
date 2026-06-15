@@ -236,6 +236,43 @@ function apply_max_concurrent_bots() {
 	});
 }
 
+function load_bot_quota() {
+	request.get('api/list', function(e, r, b) {
+		if (request_failed(e, r))
+			return;
+
+		const data = parse_json_body(b);
+		if (data && Number.isFinite(data.quota))
+			$('#bot-quota').val(data.quota);
+	});
+}
+
+function apply_bot_quota() {
+	const value_text = String($('#bot-quota').val()).trim();
+	if (!/^[0-9]+$/.test(value_text)) {
+		status.error('Bot quota must be 0 or higher');
+		load_bot_quota();
+		return;
+	}
+
+	request.post({
+		url: 'api/quota',
+		form: { value: value_text }
+	}, function(e, r, b) {
+		if (request_failed(e, r)) {
+			console.log(e, b);
+			status.error('Error applying bot quota!');
+			load_bot_quota();
+			return;
+		}
+
+		const data = parse_json_body(b);
+		if (data && Number.isFinite(data.quota))
+			$('#bot-quota').val(data.quota);
+		status.info('Applied bot quota successfully');
+	});
+}
+
 function terminateButtonCallback() {
 	console.log('terminating',$(this).parent().parent().attr('data-id'));
     request(`api/bot/${$(this).parent().parent().attr('data-id')}/terminate`, function(e, r, b) {
@@ -502,15 +539,12 @@ $(function() {
 			e.preventDefault();
 		}
 	});
-	$('#bot-quota-apply').on('click', function() {
-		request.get('api/quota/' + $('#bot-quota').val(), function(e, r, b) {
-			if (e) {
-				console.log(e, b);
-				status.error('Error applying bot quota!');
-			} else {
-				status.info('Applied bot quota successfully');
-			}
-		});
+	$('#bot-quota-apply').on('click', apply_bot_quota);
+	$('#bot-quota').on('keypress', function(e) {
+		if (e.keyCode === 13) {
+			apply_bot_quota();
+			e.preventDefault();
+		}
 	});
 	$('#bot-concurrent-apply').on('click', apply_max_concurrent_bots);
 	$('#bot-concurrent').on('keypress', function(e) {
@@ -521,6 +555,7 @@ $(function() {
 	}).on('change', function() {
 		apply_max_concurrent_bots();
 	});
+	load_bot_quota();
 	load_max_concurrent_bots();
     $('#api-login-button').on('click', () => {
         const password = String($('#api-password').val() || '').trim();

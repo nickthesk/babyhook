@@ -223,7 +223,7 @@ class BotManager {
     enforceQuota() {
         while (this.bots.length < this.quota) {
             try {
-                const bot = new Bot.bot(this.bots.length);
+                const bot = new Bot.bot(this.next_bot_id());
                 bot.shouldRun = true;
                 this.bots.push(bot);
             } catch (error) {
@@ -235,6 +235,17 @@ class BotManager {
         }
         return true;
     }
+    next_bot_id() {
+        const used_ids = new Set();
+        for (const bot of this.bots)
+            used_ids.add(bot.botid);
+
+        let botid = 0;
+        while (used_ids.has(botid))
+            botid++;
+
+        return botid;
+    }
     bot(name) {
         for (var bot of this.bots) {
             if (bot.name == name) return bot;
@@ -242,16 +253,21 @@ class BotManager {
         return null;
     }
     setQuota(quota) {
-        quota = parseInt(quota);
-        if (!isFinite(quota) || isNaN(quota)) {
-            return;
+        quota = String(quota).trim();
+        if (!/^[0-9]+$/.test(quota)) {
+            return false;
         }
+        quota = Number.parseInt(quota, 10);
+        if (!Number.isSafeInteger(quota))
+            return false;
+
         this.wanted_quota = quota;
         this.quota = quota;
         this.recover_existing_until = Date.now() + 5000;
         this.enforceQuota();
         this.rebuild_snapshots();
         this.schedule_update(0);
+        return true;
     }
     getJSONStatus() {
         var result = {};

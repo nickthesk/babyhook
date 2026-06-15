@@ -179,7 +179,20 @@ class app {
 		});
 
 		app.get('/api/quota/:quota', function (req, res) {
-			manager.setQuota(req.params.quota);
+			if (!manager.setQuota(req.params.quota)) {
+				res.status(400).send({ error: 'Invalid quota' });
+				return;
+			}
+			res.send({
+				quota: manager.quota
+			});
+		});
+
+		app.post('/api/quota', function (req, res) {
+			if (!manager.setQuota(req.body.value)) {
+				res.status(400).send({ error: 'Invalid quota' });
+				return;
+			}
 			res.send({
 				quota: manager.quota
 			});
