@@ -285,21 +285,41 @@ inline LocalPredictionInterceptResult proj_aim_simple_projectile_intercept(Playe
         continue;
       }
 
-      const Vec3 final_base = target_base_origin + (target_velocity * flight_time);
+      projectile_sim_profile verification_profile = sim_profile;
+      verification_profile.lifetime = std::min(
+        verification_profile.lifetime,
+        flight_time + verification_profile.params.time_step);
+
+      const projectile_sim_result sim_result = projectile_sim_run(candidate_launch, verification_profile);
+      if (!sim_result.valid || sim_result.steps.empty()) {
+        continue;
+      }
+
+      float final_time = 0.0f;
+      float final_miss = FLT_MAX;
+      if (!projectile_sim_closest_approach_to_linear_target(
+          sim_result,
+          target_base_origin + target_offset,
+          target_velocity,
+          &final_time,
+          &final_miss)) {
+        continue;
+      }
+
+      const Vec3 final_base = target_base_origin + (target_velocity * final_time);
       const Vec3 final_target = final_base + target_offset;
-      const float spatial_error = distance_3d(projectile_sim_position_at_time(candidate_launch, sim_profile, flight_time), final_target);
-      const float time_error = std::fabs(flight_time - estimate_time);
-      const float arc_bias = local_prediction_projectile_arc_score_bias(sim_profile, high_arc, flight_time);
-      const float score = spatial_error + (time_error * sim_profile.params.speed) + arc_bias;
+      const float time_error = std::fabs(final_time - estimate_time);
+      const float arc_bias = local_prediction_projectile_arc_score_bias(sim_profile, high_arc, final_time);
+      const float score = final_miss + (time_error * sim_profile.params.speed) + arc_bias;
       if (score < iteration_score) {
         iteration_score = score;
-        iteration_time = flight_time;
+        iteration_time = final_time;
         iteration_launch = candidate_launch;
       }
       if (score < best_score) {
         best_score = score;
-        best_time = flight_time;
-        best_miss = spatial_error;
+        best_time = final_time;
+        best_miss = final_miss;
         best_distance = distance_3d(shoot_pos, final_target);
         best_target_base = final_base;
         best_target = final_target;
@@ -462,7 +482,11 @@ inline float proj_aim_direct_prediction_horizon(Player* localplayer,
 
   const Vec3 shoot_pos = localplayer->get_shoot_pos();
   const float distance = distance_3d(shoot_pos, player->get_origin());
-  const float flight_time = distance / std::max(profile.params.speed, 1.0f);
+  const projectile_sim_profile sim_profile = projectile_sim_profile_for_weapon(localplayer, weapon);
+  const float projectile_speed = sim_profile.valid && sim_profile.params.speed > 0.0f
+    ? sim_profile.params.speed
+    : std::max(profile.params.speed, 1.0f);
+  const float flight_time = distance / std::max(projectile_speed, 1.0f);
   const float lead_time = local_prediction_ticks_to_time(local_prediction_network_lead_ticks(player));
   const float pad_time = profile.arcing ? 0.45f : 0.25f;
   return std::clamp(
