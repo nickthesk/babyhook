@@ -1119,8 +1119,7 @@ bool request_casual_queue()
   initialize_party_client_api();
 
   if (cathook::core::is_detach_pending() ||
-      g_party_client_api.get_party_client == nullptr ||
-      g_party_client_api.request_queue_for_match == nullptr)
+      g_party_client_api.get_party_client == nullptr)
   {
     return false;
   }
@@ -1131,13 +1130,7 @@ bool request_casual_queue()
     return false;
   }
 
-  if (g_party_client_api.load_saved_casual_criteria != nullptr)
-  {
-    g_party_client_api.load_saved_casual_criteria(party_client);
-  }
-
-  g_party_client_api.request_queue_for_match(party_client, casual_match_group_default);
-  return true;
+  return request_match_queue(party_client, casual_match_group_default);
 }
 
 bool cancel_casual_queue()
