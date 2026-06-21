@@ -33,7 +33,8 @@ const BOT_XAUTHORITY = process.env.XAUTHORITY || path.join(process.env.HOME || '
 const XPRA_LOG = process.env.CAT_XPRA_LOG || '/tmp/cat-catbot-xpra.log';
 const TEXTMODE_GAME = process.env.CAT_TEXTMODE_GAME !== '0';
 const BOT_TF2_OVERLAY_ENABLED = process.env.CAT_BOT_TF2_OVERLAY !== '0';
-const STEAM_TXTMODE_ENABLED = process.env.CAT_STEAM_TXTMODE === '1';
+const STEAM_TXTMODE_ENABLED = process.env.CAT_STEAM_TXTMODE === '1'
+    || (process.env.CAT_STEAM_TXTMODE !== '0' && TEXTMODE_GAME);
 const STEAM_VGUI_TARGET_VERSION = process.env.CAT_STEAM_VGUI_TARGET_VERSION || '1689034492';
 const STEAM_VGUI_REQUIRED = process.env.CAT_STEAM_VGUI === '1' || process.env.CAT_STEAM_VGUI !== '0';
 const SKIP_DBUS_RUN_SESSION = process.env.CAT_SKIP_DBUS_RUN_SESSION === '1'
@@ -56,6 +57,11 @@ const game_window_options_default = VISIBLE_WINDOWS
 const GAME_WINDOW_OPTIONS = process.env.CAT_GAME_WINDOW_OPTIONS || game_window_options_default;
 const GAME_MODE_OPTIONS = TEXTMODE_GAME
     ? '-noshaderapi -nomouse -nosound'
+    : '';
+const NOGRAPHICS_STARTUP_PATCHES = process.env.CAT_NOGRAPHICS_TF2_CPU_PATCHES === '1'
+    || (process.env.CAT_NOGRAPHICS_TF2_CPU_PATCHES !== '0' && TEXTMODE_GAME);
+const nographics_startup_patch_assignment = NOGRAPHICS_STARTUP_PATCHES
+    ? 'CAT_NOGRAPHICS_TF2_CPU_PATCHES=1'
     : '';
 const textmode_allocator_assignments = TEXTMODE_GAME
     ? 'MIMALLOC_ARENA_EAGER_COMMIT=0 MIMALLOC_EAGER_COMMIT_DELAY=0 MIMALLOC_PURGE_DELAY=0 MIMALLOC_RESET_DELAY=0 MIMALLOC_ALLOW_LARGE_OS_PAGES=0'
@@ -101,7 +107,7 @@ function game_port_options(botid) {
 
 const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --private-dev --read-write=/opt/cathook/ipc --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime --env=CAT_SKIP_DBUS_RUN_SESSION=${SKIP_DBUS_RUN_SESSION ? '1' : '0'} ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% --env=CAT_STM_LOOP_SLEEP=%CAT_STM_LOOP_SLEEP% --env=CAT_STM_LOOP_SLEEP_US=%CAT_STM_LOOP_SLEEP_US% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if [ "$CAT_SKIP_DBUS_RUN_SESSION" = 1 ]; then exec "$@"; elif command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% %STEAM_VGUI_ARG% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --private-dev --read-write=/opt/cathook/ipc --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
-const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% DBUS_SESSION_BUS_ADDRESS="unix:path=/tmp/cat-disabled-dbus" LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync +volume 0 -noqueuedpacketprocessing -limitvsconst -nocrashdialog -noipx -threads 1 %GAME_PORT_OPTIONS% -nosteamcontroller -low +fps_max 30'`
+const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} ${nographics_startup_patch_assignment} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% DBUS_SESSION_BUS_ADDRESS="unix:path=/tmp/cat-disabled-dbus" LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync +volume 0 -noqueuedpacketprocessing -limitvsconst -nocrashdialog -noipx -threads 1 %GAME_PORT_OPTIONS% -nosteamcontroller -low +fps_max 30'`
 const LAUNCH_OPTIONS_GAME_STEAM = `firejail --join=%JAILNAME% bash -c '${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %STEAM% -applaunch 440'`
 const GAME_LIBRARY_PATH = './bin:./bin/linux64:./tf/bin:./tf/bin/linux64:./platform:./platform/bin:./platform/bin/linux64:.';
 
@@ -3206,6 +3212,7 @@ class Bot extends EventEmitter {
                 `CATHOOK_ROOT_DIR="${bash_double_quote_escape(CATHOOK_ROOT)}"`,
                 `CATHOOK_AUTO_ATTACH=1`,
                 `CATHOOK_ATTACH_DELAY_SECONDS=${CATHOOK_ATTACH_DELAY_SECONDS}`,
+                nographics_startup_patch_assignment,
                 `CAT_BOT_ID="${bash_double_quote_escape(String(self.botid))}"`,
                 `CAT_BOT_NAME="${bash_double_quote_escape(self.name)}"`,
                 `CAT_STEAMID32=${steamid32}`,

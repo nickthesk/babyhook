@@ -2480,6 +2480,7 @@ extern "C" __attribute__((visibility("default"))) SDL_Window* SDL_CreateWindow(
   {
     fixed_flags &= ~(sdl_window_opengl | sdl_window_vulkan);
     fixed_flags |= sdl_window_hidden;
+    return sdl_create_window_original(title, -32000, -32000, 1, 1, fixed_flags);
   }
 
   return sdl_create_window_original(title, x, y, w, h, fixed_flags);

@@ -156,6 +156,65 @@ CAT_STM_EXPORT int XRaiseWindow(x_display* display, x_window window)
   return next_symbol(real, "XRaiseWindow") != nullptr ? real(display, window) : 0;
 }
 
+CAT_STM_EXPORT x_window XCreateWindow(
+  x_display* display,
+  x_window parent,
+  int x,
+  int y,
+  unsigned int width,
+  unsigned int height,
+  unsigned int border_width,
+  int depth,
+  unsigned int window_class,
+  void* visual,
+  unsigned long valuemask,
+  void* attributes)
+{
+  static x_window (*real)(x_display*, x_window, int, int, unsigned int, unsigned int, unsigned int, int, unsigned int, void*, unsigned long, void*) = nullptr;
+  if (next_symbol(real, "XCreateWindow") == nullptr)
+  {
+    return 0;
+  }
+  if (should_hide_x11())
+  {
+    return real(display, parent, -32000, -32000, 1, 1, border_width, depth, window_class, visual, valuemask, attributes);
+  }
+  return real(display, parent, x, y, width, height, border_width, depth, window_class, visual, valuemask, attributes);
+}
+
+CAT_STM_EXPORT x_window XCreateSimpleWindow(
+  x_display* display,
+  x_window parent,
+  int x,
+  int y,
+  unsigned int width,
+  unsigned int height,
+  unsigned int border_width,
+  unsigned long border,
+  unsigned long background)
+{
+  static x_window (*real)(x_display*, x_window, int, int, unsigned int, unsigned int, unsigned int, unsigned long, unsigned long) = nullptr;
+  if (next_symbol(real, "XCreateSimpleWindow") == nullptr)
+  {
+    return 0;
+  }
+  if (should_hide_x11())
+  {
+    return real(display, parent, -32000, -32000, 1, 1, border_width, border, background);
+  }
+  return real(display, parent, x, y, width, height, border_width, border, background);
+}
+
+CAT_STM_EXPORT int XConfigureWindow(x_display* display, x_window window, unsigned int value_mask, void* values)
+{
+  static int (*real)(x_display*, x_window, unsigned int, void*) = nullptr;
+  if (should_hide_x11())
+  {
+    return 0;
+  }
+  return next_symbol(real, "XConfigureWindow") != nullptr ? real(display, window, value_mask, values) : 0;
+}
+
 CAT_STM_EXPORT int XMoveResizeWindow(x_display* display, x_window window, int x, int y, unsigned int width, unsigned int height)
 {
   static int (*real)(x_display*, x_window, int, int, unsigned int, unsigned int) = nullptr;
@@ -284,6 +343,72 @@ CAT_STM_EXPORT void* SDL_CreateWindow(const char* title, int x, int y, int w, in
     return real(title, -32000, -32000, 1, 1, flags);
   }
   return real(title, x, y, w, h, flags);
+}
+
+CAT_STM_EXPORT void SDL_ShowWindow(void* window)
+{
+  static void (*real)(void*) = nullptr;
+  if (!should_hide_x11() && next_symbol(real, "SDL_ShowWindow") != nullptr)
+  {
+    real(window);
+  }
+}
+
+CAT_STM_EXPORT void SDL_RaiseWindow(void* window)
+{
+  static void (*real)(void*) = nullptr;
+  if (!should_hide_x11() && next_symbol(real, "SDL_RaiseWindow") != nullptr)
+  {
+    real(window);
+  }
+}
+
+CAT_STM_EXPORT void SDL_SetWindowPosition(void* window, int x, int y)
+{
+  static void (*real)(void*, int, int) = nullptr;
+  if (next_symbol(real, "SDL_SetWindowPosition") == nullptr)
+  {
+    return;
+  }
+  if (should_hide_x11())
+  {
+    real(window, -32000, -32000);
+    return;
+  }
+  real(window, x, y);
+}
+
+CAT_STM_EXPORT void SDL_SetWindowSize(void* window, int w, int h)
+{
+  static void (*real)(void*, int, int) = nullptr;
+  if (next_symbol(real, "SDL_SetWindowSize") == nullptr)
+  {
+    return;
+  }
+  if (should_hide_x11())
+  {
+    real(window, 1, 1);
+    return;
+  }
+  real(window, w, h);
+}
+
+CAT_STM_EXPORT void SDL_MaximizeWindow(void* window)
+{
+  static void (*real)(void*) = nullptr;
+  if (!should_hide_x11() && next_symbol(real, "SDL_MaximizeWindow") != nullptr)
+  {
+    real(window);
+  }
+}
+
+CAT_STM_EXPORT void SDL_RestoreWindow(void* window)
+{
+  static void (*real)(void*) = nullptr;
+  if (!should_hide_x11() && next_symbol(real, "SDL_RestoreWindow") != nullptr)
+  {
+    real(window);
+  }
 }
 
 CAT_STM_EXPORT unsigned int eglSwapInterval(void* dpy, int interval)
