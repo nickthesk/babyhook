@@ -16,7 +16,7 @@ const default_config = {
     nodiscard: true,
     gdb_crash_reports: false,
     ban_tracker_enabled: false,
-    steamwebhelper_cleanup: false,
+    steamwebhelper_cleanup: true,
     max_concurrent_bots: 3,
     steam_boot_concurrency: 3,
     steam_boot_delay_seconds: 3,

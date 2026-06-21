@@ -12,11 +12,6 @@
 #include <sys/select.h>
 #include <unistd.h>
 
-namespace cat_stm
-{
-void apply_steam_patches();
-}
-
 namespace
 {
 
@@ -25,56 +20,21 @@ using namespace cat_stm;
 using gl_proc = void (*)();
 using dlopen_fn = void* (*)(const char*, int);
 using dlmopen_fn = void* (*)(long, const char*, int);
+using x_display = void;
+using x_window = unsigned long;
+using x_drawable = unsigned long;
+using x_bool = int;
 
-template <typename Fn>
-Fn next_symbol(Fn& slot, const char* name)
+std::atomic<int> g_should_throttle{ -1 };
+
+template <typename fn>
+fn next_symbol(fn& slot, const char* name)
 {
   if (slot == nullptr)
   {
-    slot = reinterpret_cast<Fn>(::dlsym(RTLD_NEXT, name));
+    slot = reinterpret_cast<fn>(::dlsym(RTLD_NEXT, name));
   }
   return slot;
-}
-
-std::atomic<long long> g_last_present_ns{ 0 };
-std::atomic<int> g_is_steam_process{ -1 };
-
-long long monotonic_ns()
-{
-  timespec ts{};
-  ::clock_gettime(CLOCK_MONOTONIC, &ts);
-  return static_cast<long long>(ts.tv_sec) * 1000000000LL + ts.tv_nsec;
-}
-
-bool should_present()
-{
-  const config& cfg = settings();
-  if (cfg.disabled)
-  {
-    return true;
-  }
-  if (cfg.no_present)
-  {
-    return false;
-  }
-  if (cfg.present_fps > 0)
-  {
-    const long long min_interval = 1000000000LL / cfg.present_fps;
-    const long long now = monotonic_ns();
-    const long long last = g_last_present_ns.load(std::memory_order_relaxed);
-    if (now - last < min_interval)
-    {
-      return false;
-    }
-    g_last_present_ns.store(now, std::memory_order_relaxed);
-  }
-  return true;
-}
-
-int effective_swap_interval(int requested)
-{
-  const config& cfg = settings();
-  return (!cfg.disabled && cfg.no_vsync) ? 0 : requested;
 }
 
 bool path_base_matches(const char* path, const char* name)
@@ -88,88 +48,24 @@ bool path_base_matches(const char* path, const char* name)
   return std::strcmp(base, name) == 0;
 }
 
-bool command_line_has_noshaderapi()
+bool process_base_is(const char* name)
 {
-  FILE* cmdline = std::fopen("/proc/self/cmdline", "rb");
-  if (cmdline == nullptr)
-  {
-    return false;
-  }
-
-  char argument[512]{};
-  std::size_t length = 0;
-  int value = 0;
-  while ((value = std::fgetc(cmdline)) != EOF)
-  {
-    if (value == '\0')
-    {
-      if (length > 0 && std::strcmp(argument, "-noshaderapi") == 0)
-      {
-        std::fclose(cmdline);
-        return true;
-      }
-      length = 0;
-      argument[0] = '\0';
-      continue;
-    }
-
-    if (length + 1 < sizeof(argument))
-    {
-      argument[length++] = static_cast<char>(value);
-      argument[length] = '\0';
-    }
-  }
-
-  std::fclose(cmdline);
-  return length > 0 && std::strcmp(argument, "-noshaderapi") == 0;
+  char path[4096]{};
+  const ssize_t length = ::readlink("/proc/self/exe", path, sizeof(path) - 1);
+  return length > 0 && path_base_matches(path, name);
 }
 
-bool is_shaderapivk_path(const char* path)
+bool should_throttle_process()
 {
-  return path_base_matches(path, "shaderapivk.so") || path_base_matches(path, "shaderapivk");
-}
-
-const char* redirect_shader_library_path(const char* path)
-{
-  if (path == nullptr || !command_line_has_noshaderapi() || !is_shaderapivk_path(path))
-  {
-    return path;
-  }
-
-  static thread_local char redirected_path[4096]{};
-  const char* slash = std::strrchr(path, '/');
-  if (slash == nullptr)
-  {
-    std::strncpy(redirected_path, "shaderapiempty.so", sizeof(redirected_path) - 1);
-  }
-  else
-  {
-    const std::size_t prefix_length = static_cast<std::size_t>(slash - path) + 1U;
-    if (prefix_length >= sizeof(redirected_path))
-    {
-      return path;
-    }
-    std::memcpy(redirected_path, path, prefix_length);
-    std::strncpy(redirected_path + prefix_length, "shaderapiempty.so", sizeof(redirected_path) - prefix_length - 1);
-  }
-
-  log_line("redirect shader api: %s -> %s", path, redirected_path);
-  return redirected_path;
-}
-
-bool current_process_is_steam()
-{
-  const int cached = g_is_steam_process.load(std::memory_order_relaxed);
+  const int cached = g_should_throttle.load(std::memory_order_relaxed);
   if (cached >= 0)
   {
     return cached == 1;
   }
 
-  char path[4096]{};
-  const ssize_t len = ::readlink("/proc/self/exe", path, sizeof(path) - 1);
-  const bool is_steam = len > 0 && path_base_matches(path, "steam");
-  g_is_steam_process.store(is_steam ? 1 : 0, std::memory_order_relaxed);
-  return is_steam;
+  const bool throttle = process_base_is("steam") || process_base_is("steamwebhelper");
+  g_should_throttle.store(throttle ? 1 : 0, std::memory_order_relaxed);
+  return throttle;
 }
 
 void sleep_microseconds(int microseconds)
@@ -187,17 +83,12 @@ void sleep_microseconds(int microseconds)
   }
 }
 
-bool should_sleep_steam_loop()
+void sleep_loop_if(bool condition)
 {
   const config& cfg = settings();
-  return !cfg.disabled && cfg.steam_loop_sleep && cfg.steam_loop_sleep_us > 0 && current_process_is_steam();
-}
-
-void sleep_steam_loop_if(bool condition)
-{
-  if (condition && should_sleep_steam_loop())
+  if (!cfg.disabled && cfg.loop_sleep && cfg.loop_sleep_us > 0 && condition && should_throttle_process())
   {
-    sleep_microseconds(settings().steam_loop_sleep_us);
+    sleep_microseconds(cfg.loop_sleep_us);
   }
 }
 
@@ -211,31 +102,163 @@ bool timespec_is_zero(const timespec* timeout)
   return timeout != nullptr && timeout->tv_sec == 0 && timeout->tv_nsec == 0;
 }
 
+bool should_hide_x11()
+{
+  const config& cfg = settings();
+  return !cfg.disabled && cfg.hide_x11;
+}
+
+bool should_drop_gl()
+{
+  const config& cfg = settings();
+  return !cfg.disabled && cfg.no_gl;
+}
+
+int swap_interval(int requested)
+{
+  const config& cfg = settings();
+  return (!cfg.disabled && cfg.no_vsync) ? 0 : requested;
+}
+
+gl_proc proc_override(const char* name);
+
 }
 
 #define CAT_STM_EXPORT extern "C" __attribute__((visibility("default")))
 
-CAT_STM_EXPORT void glXSwapBuffers(void* dpy, unsigned long drawable)
+CAT_STM_EXPORT int XMapWindow(x_display* display, x_window window)
 {
-  static void (*real)(void*, unsigned long) = nullptr;
-  if (settings().disabled || should_present())
+  static int (*real)(x_display*, x_window) = nullptr;
+  if (should_hide_x11())
   {
-    if (next_symbol(real, "glXSwapBuffers") != nullptr)
-    {
-      real(dpy, drawable);
-    }
+    return 0;
+  }
+  return next_symbol(real, "XMapWindow") != nullptr ? real(display, window) : 0;
+}
+
+CAT_STM_EXPORT int XMapRaised(x_display* display, x_window window)
+{
+  static int (*real)(x_display*, x_window) = nullptr;
+  if (should_hide_x11())
+  {
+    return 0;
+  }
+  return next_symbol(real, "XMapRaised") != nullptr ? real(display, window) : 0;
+}
+
+CAT_STM_EXPORT int XRaiseWindow(x_display* display, x_window window)
+{
+  static int (*real)(x_display*, x_window) = nullptr;
+  if (should_hide_x11())
+  {
+    return 0;
+  }
+  return next_symbol(real, "XRaiseWindow") != nullptr ? real(display, window) : 0;
+}
+
+CAT_STM_EXPORT int XMoveResizeWindow(x_display* display, x_window window, int x, int y, unsigned int width, unsigned int height)
+{
+  static int (*real)(x_display*, x_window, int, int, unsigned int, unsigned int) = nullptr;
+  if (next_symbol(real, "XMoveResizeWindow") == nullptr)
+  {
+    return 0;
+  }
+  if (should_hide_x11())
+  {
+    return real(display, window, -32000, -32000, 1, 1);
+  }
+  return real(display, window, x, y, width, height);
+}
+
+CAT_STM_EXPORT int XResizeWindow(x_display* display, x_window window, unsigned int width, unsigned int height)
+{
+  static int (*real)(x_display*, x_window, unsigned int, unsigned int) = nullptr;
+  if (next_symbol(real, "XResizeWindow") == nullptr)
+  {
+    return 0;
+  }
+  return should_hide_x11() ? real(display, window, 1, 1) : real(display, window, width, height);
+}
+
+CAT_STM_EXPORT int XIconifyWindow(x_display* display, x_window window, int screen)
+{
+  static int (*real)(x_display*, x_window, int) = nullptr;
+  if (should_hide_x11())
+  {
+    return 1;
+  }
+  return next_symbol(real, "XIconifyWindow") != nullptr ? real(display, window, screen) : 0;
+}
+
+CAT_STM_EXPORT void glClear(unsigned int mask)
+{
+  static void (*real)(unsigned int) = nullptr;
+  if (!should_drop_gl() && next_symbol(real, "glClear") != nullptr)
+  {
+    real(mask);
+  }
+}
+
+CAT_STM_EXPORT void glDrawArrays(unsigned int mode, int first, int count)
+{
+  static void (*real)(unsigned int, int, int) = nullptr;
+  if (!should_drop_gl() && next_symbol(real, "glDrawArrays") != nullptr)
+  {
+    real(mode, first, count);
+  }
+}
+
+CAT_STM_EXPORT void glDrawElements(unsigned int mode, int count, unsigned int type, const void* indices)
+{
+  static void (*real)(unsigned int, int, unsigned int, const void*) = nullptr;
+  if (!should_drop_gl() && next_symbol(real, "glDrawElements") != nullptr)
+  {
+    real(mode, count, type, indices);
+  }
+}
+
+CAT_STM_EXPORT void glDrawRangeElements(unsigned int mode, unsigned int start, unsigned int end, int count, unsigned int type, const void* indices)
+{
+  static void (*real)(unsigned int, unsigned int, unsigned int, int, unsigned int, const void*) = nullptr;
+  if (!should_drop_gl() && next_symbol(real, "glDrawRangeElements") != nullptr)
+  {
+    real(mode, start, end, count, type, indices);
+  }
+}
+
+CAT_STM_EXPORT void glFlush()
+{
+  static void (*real)() = nullptr;
+  if (!should_drop_gl() && next_symbol(real, "glFlush") != nullptr)
+  {
+    real();
+  }
+}
+
+CAT_STM_EXPORT void glFinish()
+{
+  static void (*real)() = nullptr;
+  if (!should_drop_gl() && next_symbol(real, "glFinish") != nullptr)
+  {
+    real();
+  }
+}
+
+CAT_STM_EXPORT void glXSwapBuffers(void* dpy, x_drawable drawable)
+{
+  static void (*real)(void*, x_drawable) = nullptr;
+  if (!should_drop_gl() && next_symbol(real, "glXSwapBuffers") != nullptr)
+  {
+    real(dpy, drawable);
   }
 }
 
 CAT_STM_EXPORT unsigned int eglSwapBuffers(void* dpy, void* surface)
 {
   static unsigned int (*real)(void*, void*) = nullptr;
-  if (settings().disabled || should_present())
+  if (!should_drop_gl() && next_symbol(real, "eglSwapBuffers") != nullptr)
   {
-    if (next_symbol(real, "eglSwapBuffers") != nullptr)
-    {
-      return real(dpy, surface);
-    }
+    return real(dpy, surface);
   }
   return 1u;
 }
@@ -243,13 +266,24 @@ CAT_STM_EXPORT unsigned int eglSwapBuffers(void* dpy, void* surface)
 CAT_STM_EXPORT void SDL_GL_SwapWindow(void* window)
 {
   static void (*real)(void*) = nullptr;
-  if (settings().disabled || should_present())
+  if (!should_drop_gl() && next_symbol(real, "SDL_GL_SwapWindow") != nullptr)
   {
-    if (next_symbol(real, "SDL_GL_SwapWindow") != nullptr)
-    {
-      real(window);
-    }
+    real(window);
   }
+}
+
+CAT_STM_EXPORT void* SDL_CreateWindow(const char* title, int x, int y, int w, int h, unsigned int flags)
+{
+  static void* (*real)(const char*, int, int, int, int, unsigned int) = nullptr;
+  if (next_symbol(real, "SDL_CreateWindow") == nullptr)
+  {
+    return nullptr;
+  }
+  if (should_hide_x11())
+  {
+    return real(title, -32000, -32000, 1, 1, flags);
+  }
+  return real(title, x, y, w, h, flags);
 }
 
 CAT_STM_EXPORT unsigned int eglSwapInterval(void* dpy, int interval)
@@ -259,58 +293,60 @@ CAT_STM_EXPORT unsigned int eglSwapInterval(void* dpy, int interval)
   {
     return 1u;
   }
-  return real(dpy, effective_swap_interval(interval));
+  return real(dpy, swap_interval(interval));
 }
 
-CAT_STM_EXPORT void glXSwapIntervalEXT(void* dpy, unsigned long drawable, int interval)
+CAT_STM_EXPORT void glXSwapIntervalEXT(void* dpy, x_drawable drawable, int interval)
 {
-  static void (*real)(void*, unsigned long, int) = nullptr;
+  static void (*real)(void*, x_drawable, int) = nullptr;
   if (next_symbol(real, "glXSwapIntervalEXT") != nullptr)
   {
-    real(dpy, drawable, effective_swap_interval(interval));
+    real(dpy, drawable, swap_interval(interval));
   }
 }
 
 CAT_STM_EXPORT int glXSwapIntervalSGI(int interval)
 {
   static int (*real)(int) = nullptr;
-  if (next_symbol(real, "glXSwapIntervalSGI") == nullptr)
-  {
-    return 0;
-  }
-  return real(effective_swap_interval(interval));
+  return next_symbol(real, "glXSwapIntervalSGI") != nullptr ? real(swap_interval(interval)) : 0;
 }
 
 CAT_STM_EXPORT int glXSwapIntervalMESA(unsigned int interval)
 {
   static int (*real)(unsigned int) = nullptr;
-  if (next_symbol(real, "glXSwapIntervalMESA") == nullptr)
-  {
-    return 0;
-  }
-  return real(static_cast<unsigned int>(effective_swap_interval(static_cast<int>(interval))));
+  const unsigned int value = static_cast<unsigned int>(swap_interval(static_cast<int>(interval)));
+  return next_symbol(real, "glXSwapIntervalMESA") != nullptr ? real(value) : 0;
 }
 
 CAT_STM_EXPORT int SDL_GL_SetSwapInterval(int interval)
 {
   static int (*real)(int) = nullptr;
-  if (next_symbol(real, "SDL_GL_SetSwapInterval") == nullptr)
-  {
-    return 0;
-  }
-  return real(effective_swap_interval(interval));
+  return next_symbol(real, "SDL_GL_SetSwapInterval") != nullptr ? real(swap_interval(interval)) : 0;
 }
 
 namespace
 {
+
 gl_proc proc_override(const char* name)
 {
-  if (name == nullptr || settings().disabled)
+  if (name == nullptr || !should_drop_gl())
   {
     return nullptr;
   }
-  struct entry { const char* name; gl_proc fn; };
+
+  struct entry
+  {
+    const char* name;
+    gl_proc proc;
+  };
+
   static const entry table[] = {
+    { "glClear", reinterpret_cast<gl_proc>(&glClear) },
+    { "glDrawArrays", reinterpret_cast<gl_proc>(&glDrawArrays) },
+    { "glDrawElements", reinterpret_cast<gl_proc>(&glDrawElements) },
+    { "glDrawRangeElements", reinterpret_cast<gl_proc>(&glDrawRangeElements) },
+    { "glFlush", reinterpret_cast<gl_proc>(&glFlush) },
+    { "glFinish", reinterpret_cast<gl_proc>(&glFinish) },
     { "glXSwapBuffers", reinterpret_cast<gl_proc>(&glXSwapBuffers) },
     { "eglSwapBuffers", reinterpret_cast<gl_proc>(&eglSwapBuffers) },
     { "eglSwapInterval", reinterpret_cast<gl_proc>(&eglSwapInterval) },
@@ -318,15 +354,17 @@ gl_proc proc_override(const char* name)
     { "glXSwapIntervalSGI", reinterpret_cast<gl_proc>(&glXSwapIntervalSGI) },
     { "glXSwapIntervalMESA", reinterpret_cast<gl_proc>(&glXSwapIntervalMESA) },
   };
+
   for (const entry& item : table)
   {
     if (std::strcmp(item.name, name) == 0)
     {
-      return item.fn;
+      return item.proc;
     }
   }
   return nullptr;
 }
+
 }
 
 CAT_STM_EXPORT gl_proc eglGetProcAddress(const char* name)
@@ -362,25 +400,13 @@ CAT_STM_EXPORT gl_proc glXGetProcAddress(const unsigned char* name)
 CAT_STM_EXPORT void* dlopen(const char* filename, int flags)
 {
   static dlopen_fn real = nullptr;
-  const char* load_path = redirect_shader_library_path(filename);
-  void* result = next_symbol(real, "dlopen") != nullptr ? real(load_path, flags) : nullptr;
-  if (result != nullptr && !settings().disabled && settings().patches && path_base_matches(filename, "libcef.so"))
-  {
-    apply_steam_patches();
-  }
-  return result;
+  return next_symbol(real, "dlopen") != nullptr ? real(filename, flags) : nullptr;
 }
 
 CAT_STM_EXPORT void* dlmopen(long namespace_id, const char* filename, int flags)
 {
   static dlmopen_fn real = nullptr;
-  const char* load_path = redirect_shader_library_path(filename);
-  void* result = next_symbol(real, "dlmopen") != nullptr ? real(namespace_id, load_path, flags) : nullptr;
-  if (result != nullptr && !settings().disabled && settings().patches && path_base_matches(filename, "libcef.so"))
-  {
-    apply_steam_patches();
-  }
-  return result;
+  return next_symbol(real, "dlmopen") != nullptr ? real(namespace_id, filename, flags) : nullptr;
 }
 
 CAT_STM_EXPORT void* alcOpenDevice(const char* device_name)
@@ -406,54 +432,54 @@ CAT_STM_EXPORT int snd_pcm_open(void** pcm, const char* name, int stream, int mo
 CAT_STM_EXPORT int poll(pollfd* fds, nfds_t nfds, int timeout)
 {
   static int (*real)(pollfd*, nfds_t, int) = nullptr;
-  sleep_steam_loop_if(timeout == 0);
+  sleep_loop_if(timeout == 0);
   return next_symbol(real, "poll") != nullptr ? real(fds, nfds, timeout) : -1;
 }
 
 CAT_STM_EXPORT int ppoll(pollfd* fds, nfds_t nfds, const timespec* timeout, const sigset_t* sigmask)
 {
   static int (*real)(pollfd*, nfds_t, const timespec*, const sigset_t*) = nullptr;
-  sleep_steam_loop_if(timespec_is_zero(timeout));
+  sleep_loop_if(timespec_is_zero(timeout));
   return next_symbol(real, "ppoll") != nullptr ? real(fds, nfds, timeout, sigmask) : -1;
 }
 
 CAT_STM_EXPORT int select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, timeval* timeout)
 {
   static int (*real)(int, fd_set*, fd_set*, fd_set*, timeval*) = nullptr;
-  sleep_steam_loop_if(timeval_is_zero(timeout));
+  sleep_loop_if(timeval_is_zero(timeout));
   return next_symbol(real, "select") != nullptr ? real(nfds, readfds, writefds, exceptfds, timeout) : -1;
 }
 
 CAT_STM_EXPORT int pselect(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, const timespec* timeout, const sigset_t* sigmask)
 {
   static int (*real)(int, fd_set*, fd_set*, fd_set*, const timespec*, const sigset_t*) = nullptr;
-  sleep_steam_loop_if(timespec_is_zero(timeout));
+  sleep_loop_if(timespec_is_zero(timeout));
   return next_symbol(real, "pselect") != nullptr ? real(nfds, readfds, writefds, exceptfds, timeout, sigmask) : -1;
 }
 
 CAT_STM_EXPORT int epoll_wait(int epfd, epoll_event* events, int maxevents, int timeout)
 {
   static int (*real)(int, epoll_event*, int, int) = nullptr;
-  sleep_steam_loop_if(timeout == 0);
+  sleep_loop_if(timeout == 0);
   return next_symbol(real, "epoll_wait") != nullptr ? real(epfd, events, maxevents, timeout) : -1;
 }
 
 namespace
 {
+
 __attribute__((constructor)) void cat_steamtxtmode_init()
 {
   config& cfg = settings();
   cfg.log = env_flag("CAT_STM_LOG", true);
   cfg.disabled = env_flag("CAT_STM_DISABLE", false);
+  cfg.hide_x11 = env_flag("CAT_STM_HIDE_X11", true);
+  cfg.no_gl = env_flag("CAT_STM_NO_GL", true);
   cfg.no_vsync = env_flag("CAT_STM_NO_VSYNC", true);
   cfg.no_audio = env_flag("CAT_STM_NO_AUDIO", true);
-  cfg.no_present = env_flag("CAT_STM_NO_PRESENT", true);
-  cfg.patches = env_flag("CAT_STM_PATCHES", true);
-  cfg.present_fps = env_int("CAT_STM_PRESENT_FPS", 0);
   cfg.webhelper_trim = env_flag("CAT_STM_WEBHELPER_TRIM", true);
-  cfg.webhelper_single = env_flag("CAT_STM_WEBHELPER_SINGLE", false);
-  cfg.steam_loop_sleep = env_flag("CAT_STM_STEAM_LOOP_SLEEP", true);
-  cfg.steam_loop_sleep_us = env_int("CAT_STM_STEAM_LOOP_SLEEP_US", 5000);
+  cfg.webhelper_single = env_flag("CAT_STM_WEBHELPER_SINGLE", true);
+  cfg.loop_sleep = env_flag("CAT_STM_LOOP_SLEEP", true);
+  cfg.loop_sleep_us = env_int("CAT_STM_LOOP_SLEEP_US", 5000);
 
   if (cfg.disabled)
   {
@@ -461,13 +487,9 @@ __attribute__((constructor)) void cat_steamtxtmode_init()
     return;
   }
 
-  log_line("loaded (%d-bit): trim=%d single=%d no_vsync=%d no_audio=%d no_present=%d patches=%d steam_loop_sleep=%d steam_loop_sleep_us=%d",
-           static_cast<int>(sizeof(void*) * 8), cfg.webhelper_trim, cfg.webhelper_single,
-           cfg.no_vsync, cfg.no_audio, cfg.no_present, cfg.patches, cfg.steam_loop_sleep, cfg.steam_loop_sleep_us);
-
-  if (cfg.patches)
-  {
-    apply_steam_patches();
-  }
+  log_line("loaded (%d-bit): hide_x11=%d no_gl=%d no_vsync=%d no_audio=%d webhelper_trim=%d webhelper_single=%d loop_sleep=%d loop_sleep_us=%d",
+           static_cast<int>(sizeof(void*) * 8), cfg.hide_x11, cfg.no_gl, cfg.no_vsync,
+           cfg.no_audio, cfg.webhelper_trim, cfg.webhelper_single, cfg.loop_sleep, cfg.loop_sleep_us);
 }
+
 }

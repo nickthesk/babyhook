@@ -34,6 +34,8 @@ const XPRA_LOG = process.env.CAT_XPRA_LOG || '/tmp/cat-catbot-xpra.log';
 const TEXTMODE_GAME = process.env.CAT_TEXTMODE_GAME !== '0';
 const BOT_TF2_OVERLAY_ENABLED = process.env.CAT_BOT_TF2_OVERLAY !== '0';
 const STEAM_TXTMODE_ENABLED = process.env.CAT_STEAM_TXTMODE === '1';
+const STEAM_VGUI_TARGET_VERSION = process.env.CAT_STEAM_VGUI_TARGET_VERSION || '1689034492';
+const STEAM_VGUI_REQUIRED = process.env.CAT_STEAM_VGUI === '1' || process.env.CAT_STEAM_VGUI !== '0';
 const SKIP_DBUS_RUN_SESSION = process.env.CAT_SKIP_DBUS_RUN_SESSION === '1'
     || (process.env.CAT_SKIP_DBUS_RUN_SESSION !== '0' && TEXTMODE_GAME);
 const GDB_CRASH_REPORTS = process.env.CAT_GDB_CRASH_REPORTS === '1'
@@ -45,8 +47,8 @@ const steam_window_options_default = VISIBLE_WINDOWS
       + ' -cef-disable-breakpad -cef-disable-logging -cef-disable-js-logging -cef-disable-hevc'
       + ' -disablehighdpi -nominidumps -nobreakpad -skipstreamingdrivers';
 const steam_window_options = process.env.CAT_STEAM_WINDOW_OPTIONS || steam_window_options_default;
-const steam_shim_loop_sleep = process.env.CAT_STM_STEAM_LOOP_SLEEP === '0' ? '0' : '1';
-const steam_shim_loop_sleep_us_value = Number.parseInt(process.env.CAT_STM_STEAM_LOOP_SLEEP_US || '5000', 10);
+const steam_shim_loop_sleep = process.env.CAT_STM_LOOP_SLEEP === '0' || process.env.CAT_STM_STEAM_LOOP_SLEEP === '0' ? '0' : '1';
+const steam_shim_loop_sleep_us_value = Number.parseInt(process.env.CAT_STM_LOOP_SLEEP_US || process.env.CAT_STM_STEAM_LOOP_SLEEP_US || '5000', 10);
 const steam_shim_loop_sleep_us = Number.isSafeInteger(steam_shim_loop_sleep_us_value) && steam_shim_loop_sleep_us_value > 0 ? steam_shim_loop_sleep_us_value : 5000;
 const game_window_options_default = VISIBLE_WINDOWS
     ? '-gl -sw -w 1280 -h 720'
@@ -94,7 +96,7 @@ function game_port_options(botid) {
     return `-tv_port ${tv_port} +tv_port ${tv_port} -port ${bot_port_base} +port ${bot_port_base} +clientport ${client_port_min}-${client_port_max}`;
 }
 
-const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --private-dev --read-write=/opt/cathook/ipc --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime --env=CAT_SKIP_DBUS_RUN_SESSION=${SKIP_DBUS_RUN_SESSION ? '1' : '0'} ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% --env=CAT_STM_STEAM_LOOP_SLEEP=%CAT_STM_STEAM_LOOP_SLEEP% --env=CAT_STM_STEAM_LOOP_SLEEP_US=%CAT_STM_STEAM_LOOP_SLEEP_US% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if [ "$CAT_SKIP_DBUS_RUN_SESSION" = 1 ]; then exec "$@"; elif command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
+const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --private-dev --read-write=/opt/cathook/ipc --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime --env=CAT_SKIP_DBUS_RUN_SESSION=${SKIP_DBUS_RUN_SESSION ? '1' : '0'} ${HEADLESS_STEAM_GRAPHICS_FIREJAIL_ENV} --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% --env=CAT_STM_LOOP_SLEEP=%CAT_STM_LOOP_SLEEP% --env=CAT_STM_LOOP_SLEEP_US=%CAT_STM_LOOP_SLEEP_US% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if [ "$CAT_SKIP_DBUS_RUN_SESSION" = 1 ]; then exec "$@"; elif command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% %STEAM_VGUI_ARG% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --private-dev --read-write=/opt/cathook/ipc --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
 const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% ${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} ${textmode_allocator_assignments} SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% DBUS_SESSION_BUS_ADDRESS="unix:path=/tmp/cat-disabled-dbus" LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -nomessagebox -nominidumps -nohltv -nobreakpad -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync +volume 0 -noqueuedpacketprocessing -limitvsconst -nocrashdialog -noipx -threads 1 %GAME_PORT_OPTIONS% -nosteamcontroller -low +fps_max 30'`
 const LAUNCH_OPTIONS_GAME_STEAM = `firejail --join=%JAILNAME% bash -c '${HEADLESS_STEAM_GRAPHICS_ASSIGNMENTS} DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %STEAM% -applaunch 440'`
@@ -281,6 +283,26 @@ function steam_root_ready(steam_path) {
         fs.existsSync(path.join(steam_path, 'steam.sh')) &&
         fs.existsSync(path.join(steam_path, 'ubuntu12_32/steam')) &&
         fs.existsSync(path.join(steam_path, 'ubuntu12_32/steam-runtime/run.sh'));
+}
+
+function steam_installed_version(steam_path) {
+    if (!steam_path)
+        return '';
+
+    const package_dir = path.join(steam_path, 'package');
+    try {
+        const package_files = fs.readdirSync(package_dir)
+            .filter((name) => name.startsWith('steam_client_ubuntu12'))
+            .sort();
+        for (const package_file of package_files) {
+            const text = fs.readFileSync(path.join(package_dir, package_file), 'utf8');
+            const match = text.match(/"version"\s+"([^"]+)"/);
+            if (match)
+                return match[1];
+        }
+    } catch (error) { }
+
+    return '';
 }
 
 function steam_client_initialized_from_log(text) {
@@ -1655,6 +1677,32 @@ class Bot extends EventEmitter {
         return this.hostSteamInstallCandidates().find(steam_root_ready) || null;
     }
 
+    steamLaunchRoot() {
+        return this.steamInstallCandidates().find(steam_root_ready) || null;
+    }
+
+    warnIfSteamVguiDowngradeMissing(steam_path) {
+        if (!STEAM_VGUI_REQUIRED || !steam_path)
+            return;
+
+        const real_steam_path = (() => {
+            try {
+                return fs.realpathSync(steam_path);
+            } catch (error) {
+                return steam_path;
+            }
+        })();
+        if (this.warnedSteamVguiPath === real_steam_path)
+            return;
+
+        this.warnedSteamVguiPath = real_steam_path;
+        const version = steam_installed_version(steam_path);
+        if (version === STEAM_VGUI_TARGET_VERSION)
+            return;
+
+        this.log(`[WARN] Steam is launching with -vgui, but installed Steam package version is ${version || 'unknown'}; expected downgraded VGUI version ${STEAM_VGUI_TARGET_VERSION}. Run scripts/downgrade_steam_vgui.sh --force before starting bots.`);
+    }
+
     hostSteamappsSource() {
         const candidates = this.hostSteamappsCandidates();
         return candidates.find(steamapps_tf2_ready) || candidates.find((steamapps_path) => steamapps_path && fs.existsSync(steamapps_path)) || null;
@@ -2515,6 +2563,7 @@ class Bot extends EventEmitter {
 
         this.steamPath = this.botSteamPath(steam_path);
         this.steamApps = path.join(this.steamPath, 'steamapps');
+        this.warnIfSteamVguiDowngradeMissing(this.steamPath);
 
         if (!this.steamLoggedIn()) {
             if (!this.time_steamStatusLog || Date.now() > this.time_steamStatusLog) {
@@ -2830,6 +2879,7 @@ class Bot extends EventEmitter {
             self.xauthorityPath = '';
 
         var steambin = this.steamLaunchCommand();
+        self.warnIfSteamVguiDowngradeMissing(self.steamLaunchRoot());
         self.time_steam_launch_started = Date.now();
         const steam_preload = steam_preload_value();
         if (!STEAM_TXTMODE_ENABLED)
@@ -2844,8 +2894,9 @@ class Bot extends EventEmitter {
             .replace("%JAILNAME%", shell_quote(self.name))
             .replace("%STEAM_LD_LIBRARY_PATH%", shell_quote(process.env.LD_LIBRARY_PATH || ''))
             .replace("%LD_PRELOAD%", shell_quote(steam_preload))
-            .replace("%CAT_STM_STEAM_LOOP_SLEEP%", shell_quote(steam_shim_loop_sleep))
-            .replace("%CAT_STM_STEAM_LOOP_SLEEP_US%", shell_quote(String(steam_shim_loop_sleep_us)))
+            .replace("%CAT_STM_LOOP_SLEEP%", shell_quote(steam_shim_loop_sleep))
+            .replace("%CAT_STM_LOOP_SLEEP_US%", shell_quote(String(steam_shim_loop_sleep_us)))
+            .replace("%STEAM_VGUI_ARG%", STEAM_VGUI_REQUIRED ? '-vgui' : '')
             // XOrg Display
             .replace("%DISPLAY%", shell_quote(display_value))
             .replace("%XAUTHORITY%", shell_quote(xauthority_path))

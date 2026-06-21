@@ -12,16 +12,15 @@ namespace cat_stm
 struct config
 {
   bool disabled = false;
+  bool hide_x11 = true;
+  bool no_gl = true;
   bool no_vsync = true;
   bool no_audio = true;
-  bool no_present = false;
-  bool patches = false;
   bool log = true;
-  int present_fps = 0;
   bool webhelper_trim = true;
   bool webhelper_single = false;
-  bool steam_loop_sleep = true;
-  int steam_loop_sleep_us = 5000;
+  bool loop_sleep = true;
+  int loop_sleep_us = 5000;
 };
 
 inline config& settings()
