@@ -703,6 +703,24 @@ install_runtime_configs() {
     run_as_root chown -R "$target_uid:$target_gid" "$target_configs" "$target_logs" 2>/dev/null || true
 }
 
+fix_install_permissions() {
+    local target_uid
+    local target_gid
+
+    target_uid="$(id -u)"
+    target_gid="$(id -g)"
+
+    if [ -d "$install_root" ]; then
+        run_as_root chmod -R u=rwX,go=rX "$install_root" 2>/dev/null || true
+    fi
+
+    for path in "$install_root/configs" "$install_root/logs" "$install_root/ipc"; do
+        if [ -e "$path" ]; then
+            run_as_root chown -R "$target_uid:$target_gid" "$path" 2>/dev/null || true
+        fi
+    done
+}
+
 install_runtime() {
     local source_root
     source_root="$(runtime_source_root)"
@@ -725,6 +743,7 @@ install_runtime() {
     run_as_root install -m 0755 "$ipc_server_root/bin/exec" "$install_root/ipc/bin/exec"
     run_as_root install -m 0755 "$ipc_server_root/bin/exec_all" "$install_root/ipc/bin/exec_all"
     run_as_root install -m 0755 "$ipc_server_root/bin/undeadlock" "$install_root/ipc/bin/undeadlock"
+    fix_install_permissions
 }
 
 ensure_node_dependencies() {
@@ -1347,6 +1366,7 @@ ensure_workspace_permissions
 select_display_backend
 ensure_binaries
 install_runtime
+fix_install_permissions
 ensure_node_dependencies
 ensure_web_bundle
 ensure_accounts_file

@@ -93,7 +93,7 @@ fix_install_permissions() {
 
     run_as_root chmod -R u=rwX,go=rX "$install_root"
     if [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ]; then
-        for path in "$install_root/configs" "$install_root/logs"; do
+        for path in "$install_root/configs" "$install_root/logs" "$install_root/ipc"; do
             if [ -e "$path" ]; then
                 run_as_root chown -R "$SUDO_UID:$SUDO_GID" "$path" 2>/dev/null || true
             fi
@@ -433,6 +433,7 @@ install_outputs() {
             echo "cat-steamtxtmode build/install failed; bots will run without the Steam shim." >&2
     fi
     copy_assets "$install_assets_dir"
+    fix_install_permissions
     echo "Installed Cat runtime to $install_root"
 }
 
