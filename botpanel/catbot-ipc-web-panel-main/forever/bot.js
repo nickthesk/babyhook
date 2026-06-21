@@ -107,7 +107,8 @@ const GAME_LIBRARY_PATH = './bin:./bin/linux64:./tf/bin:./tf/bin/linux64:./platf
 const STEAM_CLIENT_INITIALIZED_PATTERNS = [
     'Desktop state changed:',
     'Caching cursor image',
-    'reaping pid:'
+    'reaping pid:',
+    'System startup time:'
 ];
 const steam_client_initialized_game_delay_default_seconds = 0;
 const STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS || String(steam_client_initialized_game_delay_default_seconds), 10);
@@ -1566,7 +1567,7 @@ class Bot extends EventEmitter {
                 return;
             self.ipcLastHeartbeat = data.heartbeat;
 
-            self.ipcID = id;
+            self.ipcID = Number(id);
             if (!self.ipcState) {
                 self.log(`Assigned IPC ID ${id}`);
                 self.schedule_steamwebhelper_cleanup();
@@ -1679,6 +1680,14 @@ class Bot extends EventEmitter {
 
     steamLaunchRoot() {
         return this.steamInstallCandidates().find(steam_root_ready) || null;
+    }
+
+    botHomeLost() {
+        try {
+            return !fs.existsSync(this.home);
+        } catch (error) {
+            return true;
+        }
     }
 
     warnIfSteamVguiDowngradeMissing(steam_path) {
@@ -3843,7 +3852,7 @@ class Bot extends EventEmitter {
         }
 
         if (this.adopt_runtime_processes(processes, children_by_parent)) {
-            this.ipcID = id;
+            this.ipcID = Number(id);
             if (!this.ipcState) {
                 this.log(`Assigned IPC ID ${id}`);
                 this.schedule_steamwebhelper_cleanup();
@@ -3881,6 +3890,16 @@ class Bot extends EventEmitter {
         if (this.shouldRun && !this.shouldRestart) {
             this.adopt_runtime_processes(processes, children_by_parent);
             if (this.procFirejailSteam) {
+                if (this.botHomeLost()) {
+                    if (!this.warnedBotHomeLost) {
+                        this.warnedBotHomeLost = true;
+                        this.log(`[ERROR] Bot home ${this.home} vanished while Steam was running (moved or trashed out from under the sandbox); the panel can no longer read this bot's Steam logs. Restarting to recreate a host-visible home.`);
+                    }
+                    this.shouldRestart = true;
+                    this.time_steamWorking = 0;
+                    return;
+                }
+                this.warnedBotHomeLost = false;
                 if (!this.isSteamWorking) {
                     this.refresh_steam_login_timeout(time);
                     const scan_steam_logs = !this.time_steam_log_scan || time > this.time_steam_log_scan;
