@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-target_version="${CAT_STEAM_VGUI_TARGET_VERSION:-1647446817}"
-archive_url="${CAT_STEAM_VGUI_ARCHIVE_URL:-http://web.archive.org/web/20220414025512if_/media.steampowered.com/client}"
+target_version="1689034492"
+archive_url="http://web.archive.org/web/20230711164652if_/media.steampowered.com/client"
 force=0
 display_value="${DISPLAY:-}"
 

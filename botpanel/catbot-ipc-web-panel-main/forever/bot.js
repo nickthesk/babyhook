@@ -34,7 +34,7 @@ const XPRA_LOG = process.env.CAT_XPRA_LOG || '/tmp/cat-catbot-xpra.log';
 const TEXTMODE_GAME = process.env.CAT_TEXTMODE_GAME !== '0';
 const BOT_TF2_OVERLAY_ENABLED = process.env.CAT_BOT_TF2_OVERLAY !== '0';
 const STEAM_TXTMODE_ENABLED = process.env.CAT_STEAM_TXTMODE === '1';
-const STEAM_VGUI_TARGET_VERSION = process.env.CAT_STEAM_VGUI_TARGET_VERSION || '1647446817';
+const STEAM_VGUI_TARGET_VERSION = process.env.CAT_STEAM_VGUI_TARGET_VERSION || '1689034492';
 const STEAM_VGUI_REQUIRED = process.env.CAT_STEAM_VGUI === '1' || process.env.CAT_STEAM_VGUI !== '0';
 const SKIP_DBUS_RUN_SESSION = process.env.CAT_SKIP_DBUS_RUN_SESSION === '1'
     || (process.env.CAT_SKIP_DBUS_RUN_SESSION !== '0' && TEXTMODE_GAME);
