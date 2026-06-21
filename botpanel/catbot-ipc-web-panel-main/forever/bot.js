@@ -61,6 +61,9 @@ const textmode_allocator_assignments = TEXTMODE_GAME
     ? 'MIMALLOC_ARENA_EAGER_COMMIT=0 MIMALLOC_EAGER_COMMIT_DELAY=0 MIMALLOC_PURGE_DELAY=0 MIMALLOC_RESET_DELAY=0 MIMALLOC_ALLOW_LARGE_OS_PAGES=0'
     : '';
 const SHARED_STEAMAPPS = '/opt/steamapps';
+const STEAM_OVERLAY = process.env.CAT_STEAM_OVERLAY === '1';
+const STEAM_OVERLAY_ROOT = process.env.CAT_STEAM_OVERLAY_DIR || '/opt/cathook/steam-overlays';
+const STEAM_OVERLAY_PRIVATE_DIRS = ['appcache', 'config', 'logs', 'steamapps', 'steamapps_old', 'userdata'];
 const CATHOOK_ATTACH_DELAY_SECONDS = Number.parseInt(process.env.CATHOOK_ATTACH_DELAY_SECONDS || '0', 10);
 const TF2_LAUNCH_MODE = (process.env.CAT_TF2_LAUNCH_MODE || 'direct').toLowerCase();
 const PER_BOT_X_DISPLAY = process.env.CAT_PER_BOT_X_DISPLAY === '1' || config.per_bot_x_display === true;
@@ -1387,6 +1390,67 @@ function copy_steam_seed(source_path, target_path, is_root = true) {
     }
 }
 
+function steam_overlay_paths(bot_name) {
+    const base = path.join(STEAM_OVERLAY_ROOT, bot_name);
+    return {
+        base,
+        upper: path.join(base, 'upper'),
+        work: path.join(base, 'work'),
+        merged: path.join(base, 'merged')
+    };
+}
+
+function steam_overlay_mounted(merged) {
+    let real_merged = merged;
+    try {
+        real_merged = fs.realpathSync(merged);
+    } catch (error) { }
+    try {
+        const mounts = fs.readFileSync('/proc/mounts', 'utf8');
+        return mounts.split('\n').some((line) => {
+            const parts = line.split(' ');
+            return parts[0] === 'overlay' && parts[1] === real_merged;
+        });
+    } catch (error) {
+        return false;
+    }
+}
+
+function mount_steam_overlay(lower_path, bot_name) {
+    const paths = steam_overlay_paths(bot_name);
+    fs.mkdirSync(paths.upper, { recursive: true });
+    fs.mkdirSync(paths.work, { recursive: true });
+    fs.mkdirSync(paths.merged, { recursive: true });
+    try { fs.chownSync(paths.upper, USER.uid, USER.uid); } catch (error) { }
+
+    if (!steam_overlay_mounted(paths.merged)) {
+        const options = `lowerdir=${lower_path},upperdir=${paths.upper},workdir=${paths.work}`;
+        const result = child_process.spawnSync('mount', ['-t', 'overlay', 'overlay', '-o', options, paths.merged]);
+        if (result.status !== 0)
+            throw new Error(`overlay mount failed for ${bot_name}: ${(result.stderr || '').toString().trim() || 'status ' + result.status}`);
+
+        for (const entry of STEAM_OVERLAY_PRIVATE_DIRS) {
+            const entry_path = path.join(paths.merged, entry);
+            rm_path_sync(entry_path, { recursive: true, force: true });
+            fs.mkdirSync(entry_path, { recursive: true });
+            try { fs.chownSync(entry_path, USER.uid, USER.uid); } catch (error) { }
+        }
+    }
+
+    return paths.merged;
+}
+
+function umount_steam_overlay(bot_name) {
+    const paths = steam_overlay_paths(bot_name);
+    if (steam_overlay_mounted(paths.merged)) {
+        let result = child_process.spawnSync('umount', [paths.merged]);
+        if (result.status !== 0)
+            child_process.spawnSync('umount', ['-l', paths.merged]);
+    }
+    rm_path_sync(paths.upper, { recursive: true, force: true });
+    rm_path_sync(paths.work, { recursive: true, force: true });
+}
+
 function chown_tree(target_path, uid, gid) {
     try {
         fs.chownSync(target_path, uid, gid);
@@ -1824,7 +1888,9 @@ class Bot extends EventEmitter {
 
         const target_path = this.botSteamPath(source_path);
         const steam_config_path = path.join(this.home, '.steam');
-        if (!steam_root_ready(target_path)) {
+
+        if (STEAM_OVERLAY && this.prepareSteamOverlay(source_path, target_path)) {
+        } else if (!steam_root_ready(target_path)) {
             if (fs.existsSync(target_path)) {
                 this.log(`Replacing incomplete bot Steam install at ${target_path}`);
                 rm_path_sync(target_path, { recursive: true, force: true });
@@ -1860,6 +1926,47 @@ class Bot extends EventEmitter {
                 fs.symlinkSync(link_target, link_path);
         }
         chown_tree(steam_config_path, USER.uid, USER.uid);
+    }
+
+    prepareSteamOverlay(source_path, target_path) {
+        let lower_path = source_path;
+        try { lower_path = fs.realpathSync(source_path); } catch (error) { }
+
+        let merged;
+        try {
+            merged = mount_steam_overlay(lower_path, this.name);
+        } catch (error) {
+            this.log(`[ERROR] Steam overlay mount failed, falling back to copy seed: ${error.message}`);
+            return false;
+        }
+
+        try {
+            const status = fs.lstatSync(target_path);
+            if (!status.isSymbolicLink() || fs.readlinkSync(target_path) !== merged) {
+                this.log(`Reclaiming previous Steam copy at ${target_path}`);
+                rm_path_sync(target_path, { recursive: true, force: true });
+            }
+        } catch (error) {
+            if (error.code !== 'ENOENT')
+                throw error;
+        }
+
+        fs.mkdirSync(path.dirname(target_path), { recursive: true });
+        if (!fs.existsSync(target_path))
+            fs.symlinkSync(merged, target_path);
+
+        if (!steam_root_ready(target_path)) {
+            this.log(`[ERROR] Steam overlay is incomplete at ${target_path}; falling back to copy seed.`);
+            try { umount_steam_overlay(this.name); } catch (error) { }
+            try { rm_path_sync(target_path, { recursive: true, force: true }); } catch (error) { }
+            return false;
+        }
+
+        if (!this.loggedSteamOverlay) {
+            this.loggedSteamOverlay = true;
+            this.log(`Steam client mounted via overlay: lower=${lower_path} merged=${merged} (per-bot writes in upper layer)`);
+        }
+        return true;
     }
 
     steamid32FromLoginUsers() {
@@ -3034,6 +3141,13 @@ class Bot extends EventEmitter {
         if (!self.ensure_account_loaded())
             return false;
 
+        try {
+            for (const entry of fs.readdirSync(this.home)) {
+                if (/^\.gl.{6}$/.test(entry))
+                    try { fs.unlinkSync(path.join(this.home, entry)); } catch (error) { }
+            }
+        } catch (error) { }
+
         var filename = path.join(this.home, `.gl${makeid(6)}`);
         const source_library = cathook_game_library();
         fs.copyFileSync(source_library, filename);
@@ -4109,8 +4223,17 @@ class Bot extends EventEmitter {
         this.stop();
         const fully_stopped = !(this.procFirejailGame || this.procFirejailSteam);
         // Only tear down the per-bot Xvfb once Steam/game are gone, otherwise Steam loses its display mid-shutdown.
-        if (fully_stopped)
+        if (fully_stopped) {
             this.killXvfb();
+            if (STEAM_OVERLAY) {
+                try {
+                    umount_steam_overlay(this.name);
+                    this.loggedSteamOverlay = false;
+                } catch (error) {
+                    this.log(`[WARN] Steam overlay teardown failed: ${error.message}`);
+                }
+            }
+        }
         // Delete the network namespace for this bot
         if (!USER.SUPPORTS_FJ_NET && fs.existsSync(`/var/run/netns/catbotns${this.botid}`))
             child_process.execSync(`./scripts/ns-delete ${this.botid}`)
