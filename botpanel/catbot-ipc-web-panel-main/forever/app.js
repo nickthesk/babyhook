@@ -180,13 +180,13 @@ class app {
 		app.get('/api/bot/:bot/terminate', function (req, res) {
 			if (req.params.bot === "all") {
 				for (var bot of manager.bots)
-					bot.stop();
+					bot.terminate();
 				res.status(200).end();
 				return;
 			}
 			var bot = manager.bot(req.params.bot);
 			if (bot) {
-				bot.stop();
+				bot.terminate();
 				res.status(200).end();
 			} else {
 				res.status(400).send({

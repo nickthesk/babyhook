@@ -1224,13 +1224,27 @@ configure_steam_txtmode_preload() {
     local soname="libcatsteamtxtmode.so"
     local library_path
     library_path="$(ldconfig -p 2>/dev/null | awk -v soname="$soname" '$1 == soname { print $NF; exit }')"
+    if [ -z "$library_path" ]; then
+        for candidate in \
+            "$install_root/botpanel/cat-steamtxtmode/bin/lib64/$soname" \
+            "$repo_root/botpanel/cat-steamtxtmode/bin/lib64/$soname" \
+            "/usr/local/lib/$soname" \
+            "/usr/lib/$soname" \
+            "/usr/lib64/$soname" \
+            "/usr/lib/x86_64-linux-gnu/$soname"; do
+            if [ -f "$candidate" ]; then
+                library_path="$candidate"
+                break
+            fi
+        done
+    fi
     if [ -z "$library_path" ] || [ ! -f "$library_path" ]; then
         return
     fi
 
     local existing_preload="${STEAM_LD_PRELOAD:-}"
     local entry
-    local rebuilt_preload="$soname"
+    local rebuilt_preload="$library_path"
     if [ -n "${STEAM_LD_PRELOAD:-}" ]; then
         IFS=':' read -r -a preload_entries <<< "$existing_preload"
         for entry in "${preload_entries[@]}"; do
@@ -1295,6 +1309,7 @@ start_panel() {
             CAT_TF2_LAUNCH_MODE="${CAT_TF2_LAUNCH_MODE:-direct}" \
             CAT_STEAM_HEADLESS_GRAPHICS="${CAT_STEAM_HEADLESS_GRAPHICS:-1}" \
             CAT_STEAM_TXTMODE="${CAT_STEAM_TXTMODE:-}" \
+            CAT_NOGRAPHICS_TF2_CPU_PATCHES="${CAT_NOGRAPHICS_TF2_CPU_PATCHES:-}" \
             CAT_STEAM_WINDOW_OPTIONS="${CAT_STEAM_WINDOW_OPTIONS:-}" \
             CAT_GAME_WINDOW_OPTIONS="${CAT_GAME_WINDOW_OPTIONS:-}" \
             CAT_X_SCREEN="${CAT_X_SCREEN:-}" \
@@ -1331,6 +1346,7 @@ start_panel() {
         CAT_TF2_LAUNCH_MODE="${CAT_TF2_LAUNCH_MODE:-direct}" \
         CAT_STEAM_HEADLESS_GRAPHICS="${CAT_STEAM_HEADLESS_GRAPHICS:-1}" \
         CAT_STEAM_TXTMODE="${CAT_STEAM_TXTMODE:-}" \
+        CAT_NOGRAPHICS_TF2_CPU_PATCHES="${CAT_NOGRAPHICS_TF2_CPU_PATCHES:-}" \
         CAT_STEAM_WINDOW_OPTIONS="${CAT_STEAM_WINDOW_OPTIONS:-}" \
         CAT_GAME_WINDOW_OPTIONS="${CAT_GAME_WINDOW_OPTIONS:-}" \
         CAT_X_SCREEN="${CAT_X_SCREEN:-}" \
