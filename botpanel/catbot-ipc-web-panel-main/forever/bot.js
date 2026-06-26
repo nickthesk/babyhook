@@ -61,6 +61,7 @@ const GAME_MODE_OPTIONS = TEXTMODE_GAME
 const textmode_allocator_assignments = TEXTMODE_GAME
     ? 'MIMALLOC_ARENA_EAGER_COMMIT=0 MIMALLOC_EAGER_COMMIT_DELAY=0 MIMALLOC_PURGE_DELAY=0 MIMALLOC_RESET_DELAY=0 MIMALLOC_ALLOW_LARGE_OS_PAGES=0'
     : '';
+const SHARED_STEAM_ROOT = '/opt/catbot-shared-steam';
 const SHARED_STEAMAPPS = '/opt/steamapps';
 const STEAM_OVERLAY = process.env.CAT_STEAM_OVERLAY === '1' || process.env.CAT_STEAM_OVERLAY !== '0';
 const STEAM_OVERLAY_ROOT = process.env.CAT_STEAM_OVERLAY_DIR || '/opt/cathook/steam-overlays';
@@ -1415,6 +1416,34 @@ function copy_steam_seed(source_path, target_path, is_root = true) {
     }
 }
 
+function ensure_exact_symlink(link_path, target_path) {
+    try {
+        const status = fs.lstatSync(link_path);
+        if (status.isSymbolicLink() && fs.readlinkSync(link_path) === target_path)
+            return;
+        rm_path_sync(link_path, { recursive: true, force: true });
+    } catch (error) {
+        if (error.code !== 'ENOENT')
+            throw error;
+    }
+
+    fs.symlinkSync(target_path, link_path);
+}
+
+function ensure_local_directory(directory_path, uid, gid) {
+    try {
+        const status = fs.lstatSync(directory_path);
+        if (status.isSymbolicLink() || !status.isDirectory())
+            rm_path_sync(directory_path, { recursive: true, force: true });
+    } catch (error) {
+        if (error.code !== 'ENOENT')
+            throw error;
+    }
+
+    fs.mkdirSync(directory_path, { recursive: true });
+    chown_tree(directory_path, uid, gid);
+}
+
 function steam_overlay_paths(bot_name) {
     const base = path.join(STEAM_OVERLAY_ROOT, bot_name);
     return {
@@ -1853,6 +1882,48 @@ class Bot extends EventEmitter {
         return true;
     }
 
+    ensureSharedSteamRoot(source_path) {
+        if (!source_path)
+            return false;
+
+        let real_source_path = source_path;
+        try {
+            real_source_path = fs.realpathSync(source_path);
+        } catch (error) { }
+
+        if (real_source_path === SHARED_STEAM_ROOT)
+            return true;
+
+        if (command_succeeds('mountpoint', ['-q', SHARED_STEAM_ROOT])) {
+            if (steam_root_ready(SHARED_STEAM_ROOT))
+                return true;
+
+            child_process.execFileSync('umount', [SHARED_STEAM_ROOT]);
+            this.log(`Unmounted incomplete ${SHARED_STEAM_ROOT}`);
+        }
+
+        try {
+            const status = fs.lstatSync(SHARED_STEAM_ROOT);
+            if (status.isSymbolicLink()) {
+                rm_path_sync(SHARED_STEAM_ROOT, { force: true });
+            } else if (steam_root_ready(SHARED_STEAM_ROOT)) {
+                return true;
+            } else {
+                const backup_path = `${SHARED_STEAM_ROOT}.backup.${Math.floor(Date.now() / 1000)}`;
+                fs.renameSync(SHARED_STEAM_ROOT, backup_path);
+                this.log(`Moved incomplete ${SHARED_STEAM_ROOT} to ${backup_path}`);
+            }
+        } catch (error) {
+            if (error.code !== 'ENOENT')
+                throw error;
+        }
+
+        fs.mkdirSync(SHARED_STEAM_ROOT, { recursive: true });
+        child_process.execFileSync('mount', ['--bind', real_source_path, SHARED_STEAM_ROOT]);
+        this.log(`Shared Steam root ready, source=${real_source_path}, target=${SHARED_STEAM_ROOT}, mode=bind`);
+        return true;
+    }
+
     tf2InstallCandidates() {
         const steam_roots = unique_paths([
             this.steamPath,
@@ -1911,23 +1982,54 @@ class Bot extends EventEmitter {
         if (!source_path)
             return;
 
+        if (!this.ensureSharedSteamRoot(source_path))
+            return;
+
         const target_path = this.botSteamPath(source_path);
         const steam_config_path = path.join(this.home, '.steam');
+        const local_entries = new Set(['appcache', 'config', 'logs', 'package', 'registry.vdf', 'userdata']);
+        const skip_entries = new Set([...local_entries, 'steamapps', 'steamapps_old']);
 
-        if (STEAM_OVERLAY && this.prepareSteamOverlay(source_path, target_path)) {
-        } else if (!steam_root_ready(target_path)) {
-            if (fs.existsSync(target_path)) {
-                this.log(`Replacing incomplete bot Steam install at ${target_path}`);
-                rm_path_sync(target_path, { recursive: true, force: true });
+        fs.mkdirSync(target_path, { recursive: true });
+        fs.chownSync(target_path, USER.uid, USER.uid);
+
+        for (const entry of local_entries) {
+            const entry_path = path.join(target_path, entry);
+            if (entry.endsWith('.vdf')) {
+                try {
+                    const status = fs.lstatSync(entry_path);
+                    if (status.isSymbolicLink())
+                        rm_path_sync(entry_path, { force: true });
+                } catch (error) {
+                    if (error.code !== 'ENOENT')
+                        throw error;
+                }
+                continue;
             }
-            this.log(`Seeding Steam client into bot home from ${source_path} to ${target_path}`);
-            copy_steam_seed(source_path, target_path);
-            chown_tree(target_path, USER.uid, USER.uid);
-            if (!steam_root_ready(target_path))
-                this.log(`[ERROR] Seeded Steam install is still incomplete at ${target_path}`);
+
+            ensure_local_directory(entry_path, USER.uid, USER.uid);
         }
 
+        for (const entry of fs.readdirSync(source_path)) {
+            if (skip_entries.has(entry))
+                continue;
+
+            const source_entry_path = path.join(SHARED_STEAM_ROOT, entry);
+            const target_entry_path = path.join(target_path, entry);
+            ensure_exact_symlink(target_entry_path, source_entry_path);
+        }
+
+        if (!steam_root_ready(target_path))
+            this.log(`[ERROR] Bot Steam root is incomplete at ${target_path}`);
+        else
+            this.log(`Bot Steam root ready, source=${source_path}, target=${target_path}, mode=shared_links`);
+
         fs.mkdirSync(steam_config_path, { recursive: true });
+        rm_path_sync(path.join(target_path, '.crash'), { force: true });
+        ensure_exact_symlink(path.join(steam_config_path, 'bin32'), path.join('debian-installation', 'ubuntu12_32'));
+        ensure_exact_symlink(path.join(steam_config_path, 'bin64'), path.join('debian-installation', 'ubuntu12_64'));
+        ensure_exact_symlink(path.join(steam_config_path, 'bin'), 'bin32');
+        ensure_exact_symlink(path.join(steam_config_path, 'sdk32'), path.join('debian-installation', 'linux32'));
         for (const link_name of ['steam', 'root']) {
             const link_path = path.join(steam_config_path, link_name);
             if (path.resolve(link_path) === path.resolve(target_path)) {
@@ -1938,17 +2040,7 @@ class Bot extends EventEmitter {
             }
 
             const link_target = path.relative(steam_config_path, target_path) || '.';
-            try {
-                const status = fs.lstatSync(link_path);
-                if (!status.isSymbolicLink() || fs.readlinkSync(link_path) !== link_target)
-                    rm_path_sync(link_path, { recursive: true, force: true });
-            } catch (error) {
-                if (error.code !== 'ENOENT')
-                    throw error;
-            }
-
-            if (!fs.existsSync(link_path))
-                fs.symlinkSync(link_target, link_path);
+            ensure_exact_symlink(link_path, link_target);
         }
         chown_tree(steam_config_path, USER.uid, USER.uid);
     }
