@@ -45,7 +45,7 @@ function has_config_option(option) {
 }
 
 function set_config_value(option, raw_value) {
-	if (option === 'max_concurrent_bots') {
+	if (option === 'max_concurrent_bots' || option === 'steam_boot_concurrency') {
 		const value = parse_positive_integer(raw_value);
 		if (value === null)
 			return null;
@@ -144,14 +144,23 @@ class app {
 
 		app.get('/api/bot/:bot/restart', function (req, res) {
 			if (req.params.bot === "all") {
-				for (var bot of manager.bots)
+				const processes = Bot.read_process_table(true);
+				const children_by_parent = Bot.build_process_children_by_parent(processes);
+				for (var bot of manager.bots) {
+					bot.kill_existing_runtime_processes(processes, children_by_parent);
 					bot.restart();
+				}
+				manager.request_update(manager.update_slice_yield_ms || 25);
 				res.status(200).end();
 				return;
 			}
 			var bot = manager.bot(req.params.bot);
 			if (bot) {
+				const processes = Bot.read_process_table(true);
+				const children_by_parent = Bot.build_process_children_by_parent(processes);
+				bot.kill_existing_runtime_processes(processes, children_by_parent);
 				bot.restart();
+				manager.request_update(manager.update_slice_yield_ms || 25);
 				res.status(200).end();
 			} else {
 				res.status(400).send({
@@ -179,14 +188,20 @@ class app {
 
 		app.get('/api/bot/:bot/terminate', function (req, res) {
 			if (req.params.bot === "all") {
+				const processes = Bot.read_process_table(true);
+				const children_by_parent = Bot.build_process_children_by_parent(processes);
 				for (var bot of manager.bots)
-					bot.terminate();
+					bot.terminate(processes, children_by_parent);
+				manager.request_update(manager.update_slice_yield_ms || 25);
 				res.status(200).end();
 				return;
 			}
 			var bot = manager.bot(req.params.bot);
 			if (bot) {
-				bot.terminate();
+				const processes = Bot.read_process_table(true);
+				const children_by_parent = Bot.build_process_children_by_parent(processes);
+				bot.terminate(processes, children_by_parent);
+				manager.request_update(manager.update_slice_yield_ms || 25);
 				res.status(200).end();
 			} else {
 				res.status(400).send({

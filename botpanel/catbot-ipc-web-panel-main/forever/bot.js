@@ -196,6 +196,7 @@ let cathook_configs_ready = false;
 const STATE = {
     INITIALIZING: 0,
     INITIALIZED: 1,
+    PREPARING: 2,
     STARTING: 3,
     WAITING: 4,
     RUNNING: 5,
@@ -204,6 +205,7 @@ const STATE = {
     NO_ACCOUNT: 8,
     INVALID_PASSWORD_E5: 9,
     ACCOUNT_DISABLED_E43: 10,
+    PENDING: 11,
 }
 
 function makeid(length) {
@@ -369,12 +371,43 @@ function steam_webhelper_browser_stalled(text) {
 }
 
 function command_succeeds(command, args) {
+    if (command === 'which' && args && args.length)
+        return command_in_path(args[0]);
+    if (command === 'mountpoint' && args && args[0] === '-q' && args[1])
+        return is_mountpoint(args[1]);
+
     try {
         child_process.execFileSync(command, args, { stdio: 'ignore' });
         return true;
     } catch (error) {
         return false;
     }
+}
+
+function command_in_path(command) {
+    const path_value = process.env.PATH || '';
+    for (const directory of path_value.split(':')) {
+        if (!directory)
+            continue;
+        try {
+            fs.accessSync(path.join(directory, command), fs.constants.X_OK);
+            return true;
+        } catch (error) { }
+    }
+    return false;
+}
+
+function is_mountpoint(target_path) {
+    try {
+        const real_path = fs.realpathSync(target_path);
+        const mountinfo = fs.readFileSync('/proc/self/mountinfo', 'utf8');
+        for (const line of mountinfo.split('\n')) {
+            const fields = line.split(' ');
+            if (fields.length > 4 && fields[4] === real_path)
+                return true;
+        }
+    } catch (error) { }
+    return false;
 }
 
 let xvfb_available_cached = null;
@@ -416,14 +449,7 @@ function x_socket_path(display_num) {
 }
 
 function wait_for_x_socket(display_num, timeout_ms) {
-    const socket_path = x_socket_path(display_num);
-    const deadline = Date.now() + timeout_ms;
-    while (Date.now() < deadline) {
-        if (fs.existsSync(socket_path))
-            return true;
-        try { child_process.execFileSync('sleep', ['0.05'], { stdio: 'ignore' }); } catch (error) { break; }
-    }
-    return fs.existsSync(socket_path);
+    return fs.existsSync(x_socket_path(display_num));
 }
 
 function chunked_x_display_entry(display_num) {
@@ -1535,25 +1561,17 @@ function get_default_network_interface() {
         return process.env.CATHOOK_NET_INTERFACE;
 
     try {
-        const route = child_process.execFileSync('ip', ['-o', '-4', 'route', 'get', process.env.CATHOOK_NET_PROBE_HOST || '1.1.1.1'], { encoding: 'utf8' }).trim();
-        const fields = route.split(/\s+/);
-        const dev_index = fields.indexOf('dev');
-
-        if (dev_index !== -1 && dev_index + 1 < fields.length)
-            return fields[dev_index + 1];
-    } catch (error) { }
-
-    try {
-        const default_route = child_process.execFileSync('ip', ['-o', '-4', 'route', 'show', 'default'], { encoding: 'utf8' }).trim();
-        const fields = default_route.split(/\s+/);
-        const dev_index = fields.indexOf('dev');
-
-        if (dev_index !== -1 && dev_index + 1 < fields.length)
-            return fields[dev_index + 1];
-    } catch (error) { }
-
-    try {
-        return child_process.execSync("route -n | grep '^0\\.0\\.0\\.0' | grep -o '[^ ]*$' | head -n 1", { encoding: 'utf8' }).trim();
+        const route_table = fs.readFileSync('/proc/net/route', 'utf8').trim().split('\n').slice(1);
+        for (const line of route_table) {
+            const fields = line.trim().split(/\s+/);
+            if (fields.length > 7 && fields[1] === '00000000' && fields[7] === '00000000')
+                return fields[0];
+        }
+        for (const line of route_table) {
+            const fields = line.trim().split(/\s+/);
+            if (fields.length > 1 && fields[1] === '00000000')
+                return fields[0];
+        }
     } catch (error) { }
 
     return '';
@@ -1580,11 +1598,18 @@ if (!process.env.SUDO_USER) {
     process.exit(1);
 }
 
-const USER = { name: process.env.SUDO_USER, uid: Number.parseInt(child_process.execSync("id -u " + process.env.SUDO_USER).toString().trim()), home: child_process.execSync(`printf ~${process.env.SUDO_USER}`).toString(), interface: get_default_network_interface(), SUPPORTS_FJ_NET: true };
+const sudo_uid = Number.parseInt(process.env.SUDO_UID || '', 10);
+const USER = {
+    name: process.env.SUDO_USER,
+    uid: Number.isSafeInteger(sudo_uid) ? sudo_uid : 1000,
+    home: process.env.CAT_PANEL_USER_HOME || path.join('/home', process.env.SUDO_USER),
+    interface: get_default_network_interface(),
+    SUPPORTS_FJ_NET: process.env.CAT_USE_FIREJAIL_NET === '1'
+};
 if (!USER.interface) {
     USER.SUPPORTS_FJ_NET = false;
 } else {
-    if (!firejail_network_works(USER.interface))
+    if (USER.SUPPORTS_FJ_NET && !firejail_network_works(USER.interface))
         USER.SUPPORTS_FJ_NET = false;
 }
 
@@ -1602,10 +1627,6 @@ class Bot extends EventEmitter {
         this.botid = botid;
         this.home = path.join(__dirname, "..", "..", "user_instances", this.name)
 
-        // Create a network namespace for this bot
-        if (!USER.SUPPORTS_FJ_NET)
-            child_process.execSync("./scripts/ns-inet " + this.botid)
-
         this.stopped = false;
         this.account = null;
         this.account_generation = 0;
@@ -1620,6 +1641,9 @@ class Bot extends EventEmitter {
         this.botDisplay = null;
         this.botXvfbAdopted = false;
         this.chunked_x_display_entry = null;
+        this.network_namespace_ready = USER.SUPPORTS_FJ_NET;
+        this.network_namespace_preparing = false;
+        this.network_namespace_failed = false;
 
         // Start timestamp
         this.startTime = null;
@@ -1718,6 +1742,50 @@ class Bot extends EventEmitter {
 
     log(message) {
         console.log(`[${timestamp('HH:mm:ss')}][${this.name}][${this.state}] ${message}`);
+    }
+
+    ensure_network_namespace() {
+        if (USER.SUPPORTS_FJ_NET)
+            return true;
+        if (this.network_namespace_ready)
+            return true;
+        if (this.network_namespace_failed)
+            return false;
+        if (fs.existsSync(`/var/run/netns/catbotns${this.botid}`)) {
+            this.network_namespace_ready = true;
+            return true;
+        }
+        if (this.network_namespace_preparing)
+            return false;
+
+        this.network_namespace_preparing = true;
+        this.log('Preparing network namespace');
+        const ns_process = child_process.spawn('./scripts/ns-inet', [String(this.botid)], {
+            stdio: ['ignore', 'ignore', 'pipe']
+        });
+        ns_process.stderr.on('data', (data) => {
+            const text = String(data || '').trim();
+            if (text)
+                this.log(`[ERROR] ns-inet: ${text}`);
+        });
+        ns_process.on('error', (error) => {
+            this.network_namespace_preparing = false;
+            this.network_namespace_failed = true;
+            this.shouldRun = false;
+            this.log(`[ERROR] Failed to prepare network namespace: ${error.message}`);
+        });
+        ns_process.on('exit', (code, signal) => {
+            this.network_namespace_preparing = false;
+            if (code === 0) {
+                this.network_namespace_ready = true;
+                this.log('Network namespace ready');
+            } else {
+                this.network_namespace_failed = true;
+                this.shouldRun = false;
+                this.log(`[ERROR] Network namespace setup failed code=${code} signal=${signal}`);
+            }
+        });
+        return false;
     }
 
     shouldSetupSteamapps() {
@@ -2395,14 +2463,7 @@ class Bot extends EventEmitter {
         this.botDisplay = `:${display_num}`;
         this.log(`Spawned per-bot Xvfb on ${this.botDisplay} (pid ${this.procXvfb.pid})`);
 
-        // Brief poll so Steam doesn't race against the X socket appearing.
         const x_socket_path = `/tmp/.X11-unix/X${display_num}`;
-        const deadline = Date.now() + 3000;
-        while (Date.now() < deadline) {
-            if (fs.existsSync(x_socket_path))
-                break;
-            try { child_process.execFileSync('sleep', ['0.05'], { stdio: 'ignore' }); } catch (error) { break; }
-        }
         if (!fs.existsSync(x_socket_path))
             this.log(`[WARN] X socket ${x_socket_path} did not appear within 3s; Steam may fail to connect.`);
 
@@ -3552,10 +3613,8 @@ class Bot extends EventEmitter {
         this.log(`Restart requested: ${reason}`);
         this.clear_ipc_state();
         this.terminal_auth_state = 0;
-        if (this.shouldRun)
-            this.shouldRestart = true;
-        else
-            this.shouldRun = true;
+        this.shouldRun = true;
+        this.shouldRestart = true;
         return true;
     }
 
@@ -4002,6 +4061,47 @@ class Bot extends EventEmitter {
         return true;
     }
 
+    kill_existing_runtime_processes(processes, children_by_parent) {
+        processes = process_table_or_current(processes);
+        children_by_parent = children_by_parent || build_process_children_by_parent(processes);
+
+        const roots = [];
+        const steam_root = this.procFirejailSteam || find_firejail_root_by_marker(processes, '--name', this.name);
+        const game_root = this.procFirejailGame || find_firejail_root_by_marker(processes, '--join', this.name);
+        if (steam_root)
+            roots.push(steam_root.pid || steam_root);
+        if (game_root)
+            roots.push(game_root.pid || game_root);
+
+        const unique_roots = [...new Set(roots)].filter((pid) => pid && pid > 0);
+        if (!unique_roots.length)
+            return false;
+
+        let killed_count = 0;
+        for (const root_pid of unique_roots) {
+            const pids = collect_descendant_pids_from_children(root_pid, children_by_parent).reverse();
+            pids.push(root_pid);
+            killed_count += kill_pids(pids, 'SIGTERM');
+            setTimeout(() => {
+                kill_process_tree(root_pid, 'SIGKILL');
+            }, 2000).unref();
+        }
+
+        this.shouldRun = false;
+        this.shouldRestart = false;
+        this.clear_ipc_state();
+        this.procFirejailSteam = null;
+        this.procFirejailGame = null;
+        this.gamePid = -1;
+        this.gameStarted = 0;
+        this.time_steamWorking = 0;
+        this.time_steam_login_timeout_started = 0;
+        this.time_steamLoggedIn = 0;
+        this.state = STATE.INITIALIZED;
+        this.log(`Killed existing runtime process trees roots=${unique_roots.join(',')} count=${killed_count}`);
+        return true;
+    }
+
     owns_process_pid(pid, processes, children_by_parent) {
         return Boolean(this.find_owned_process_by_pid(pid, processes, children_by_parent));
     }
@@ -4277,6 +4377,10 @@ class Bot extends EventEmitter {
                     }
                     const manager_allows_start = !this.manager || this.manager.can_bot_begin_steam_boot(this, time);
                     if (this.account && manager_allows_start) {
+                        if (!this.ensure_network_namespace()) {
+                            this.state = STATE.PREPARING;
+                            return;
+                        }
                         this.state = STATE.STARTING;
                         this.reset();
                         if (this.spawnSteam()) {
@@ -4293,10 +4397,12 @@ class Bot extends EventEmitter {
                             this.time_steamAssumeReady = TIMEOUT_STEAM_ASSUME_READY ? time + TIMEOUT_STEAM_ASSUME_READY : 0;
                         }
                     } else if (this.account && (!this.time_steam_boot_status_log || time > this.time_steam_boot_status_log)) {
+                        if (!manager_allows_start && this.state !== STATE.PENDING)
+                            this.state = STATE.PENDING;
                         if (!manager_allows_start && this.manager) {
                             const queue_index = this.manager.start_queue_index(this);
                             const queue_head = this.manager.start_lane.length ? this.manager.start_lane[0].name : 'none';
-                            const blocked_by = this.manager.higher_bot_blocks_steam_start(this) ? 'higher-id bot pending' : 'start slots full';
+                            const blocked_by = 'start slots full';
                             this.log(`Waiting for start lane position ${queue_index + 1}/${this.manager.start_lane.length}, head=${queue_head}, ${blocked_by}, active=${this.manager.count_active_starts()}/${max_concurrent_bots()}`);
                         } else if (!this.account)
                             this.log('Waiting for account');
@@ -4315,10 +4421,9 @@ class Bot extends EventEmitter {
                 }
                 this.state = this.terminal_auth_state || STATE.STOPPING;
                 if (!this.procFirejailSteam && !this.procFirejailGame) {
-                    this.state = this.terminal_auth_state || STATE.RESTARTING;
+                    this.state = this.terminal_auth_state || (this.shouldRun ? STATE.PENDING : STATE.INITIALIZED);
                     this.shouldRestart = false;
-                    if (this.account)
-                        this.account = null;
+                    this.account = null;
                 }
             } else {
                 if (!this.time_steam_boot_status_log || time > this.time_steam_boot_status_log) {
@@ -4336,10 +4441,10 @@ class Bot extends EventEmitter {
     stop() {
         this.shouldRun = false;
     }
-    terminate() {
-        const processes = read_process_table(true);
-        const children_by_parent = build_process_children_by_parent(processes);
-        this.adopt_runtime_processes(processes, children_by_parent);
+    terminate(processes, children_by_parent) {
+        processes = processes || read_process_table(true);
+        children_by_parent = children_by_parent || build_process_children_by_parent(processes);
+        this.kill_existing_runtime_processes(processes, children_by_parent);
         this.shouldRun = false;
         this.shouldRestart = false;
         this.clear_ipc_state();

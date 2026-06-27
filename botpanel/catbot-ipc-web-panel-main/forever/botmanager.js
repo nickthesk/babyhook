@@ -22,6 +22,8 @@ class BotManager {
         this.recover_existing_until = 0;
         this.list_json = '{"quota":0,"count":0,"bots":{}}';
         this.state_json = '{"bots":{}}';
+        this.snapshot_dirty = true;
+        this.last_snapshot_rebuild = 0;
         this.last_ipc_query_success = 0;
         this.consecutive_ipc_failures = 0;
         this.ipc_discovery_query = true;
@@ -32,6 +34,24 @@ class BotManager {
         this.granted_starts_this_tick = 0;
         this.last_start_wave_time = 0;
         this.last_steam_boot_time = 0;
+        this.update_cursor = 0;
+        this.update_budget_ms = Number.parseInt(process.env.CAT_MANAGER_UPDATE_BUDGET_MS || '12', 10);
+        if (!Number.isSafeInteger(this.update_budget_ms) || this.update_budget_ms < 5)
+            this.update_budget_ms = 12;
+        this.update_batch_limit = Number.parseInt(process.env.CAT_MANAGER_UPDATE_BATCH || '8', 10);
+        if (!Number.isSafeInteger(this.update_batch_limit) || this.update_batch_limit < 1)
+            this.update_batch_limit = 8;
+        this.update_slice_yield_ms = Number.parseInt(process.env.CAT_MANAGER_UPDATE_SLICE_YIELD_MS || '25', 10);
+        if (!Number.isSafeInteger(this.update_slice_yield_ms) || this.update_slice_yield_ms < 1)
+            this.update_slice_yield_ms = 25;
+        this.quota_creation_timeout = null;
+        this.quota_creation_in_progress = false;
+        this.quota_creation_batch_limit = Number.parseInt(process.env.CAT_BOT_CREATE_BATCH || '8', 10);
+        if (!Number.isSafeInteger(this.quota_creation_batch_limit) || this.quota_creation_batch_limit < 1)
+            this.quota_creation_batch_limit = 8;
+        this.snapshot_interval_ms = Number.parseInt(process.env.CAT_MANAGER_SNAPSHOT_INTERVAL_MS || '1000', 10);
+        if (!Number.isSafeInteger(this.snapshot_interval_ms) || this.snapshot_interval_ms < 100)
+            this.snapshot_interval_ms = 1000;
         this.schedule_update(1000);
         this.schedule_ipc_query(this.ipc_query_interval_ms());
     }
@@ -43,6 +63,24 @@ class BotManager {
         this.updateTimeout = setTimeout(() => {
             this.updateTimeout = null;
             this.update();
+        }, delay);
+    }
+
+    request_update(delay) {
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
+            this.updateTimeout = null;
+        }
+        this.schedule_update(delay);
+    }
+
+    schedule_quota_creation(delay) {
+        if (this.stopping || this.quota_creation_timeout || this.quota_creation_in_progress || this.bots.length >= this.quota)
+            return;
+
+        this.quota_creation_timeout = setTimeout(() => {
+            this.quota_creation_timeout = null;
+            this.run_quota_creation();
         }, delay);
     }
 
@@ -180,17 +218,7 @@ class BotManager {
     }
 
     can_bot_begin_restart(bot) {
-        if (!bot.shouldRestart || !bot.shouldRun)
-            return false;
-
-        for (const other of this.bots) {
-            if (other.botid <= bot.botid)
-                continue;
-            if (!other.shouldRun || !other.shouldRestart)
-                continue;
-            return false;
-        }
-        return true;
+        return bot.shouldRestart;
     }
 
     count_active_starts() {
@@ -243,9 +271,6 @@ class BotManager {
     }
 
     can_bot_begin_steam_boot(bot, time) {
-        if (this.higher_bot_blocks_steam_start(bot))
-            return false;
-
         const rank = this.start_lane.indexOf(bot);
         if (rank < 0)
             return false;
@@ -298,7 +323,9 @@ class BotManager {
 
         for (const bot of this.bots) {
             list.bots[bot.name] = {
-                user: bot.user
+                user: bot.user || bot.name,
+                state: bot.state,
+                ipcID: bot.ipcID
             };
 
             const steamid32 = bot.ipcState && bot.ipcState.friendid ? String(bot.ipcState.friendid) : null;
@@ -320,6 +347,16 @@ class BotManager {
 
         this.list_json = JSON.stringify(list);
         this.state_json = JSON.stringify(state);
+        this.last_snapshot_rebuild = Date.now();
+        this.snapshot_dirty = false;
+    }
+
+    maybe_rebuild_snapshots(force) {
+        if (!force && !this.snapshot_dirty)
+            return;
+        if (!force && Date.now() - this.last_snapshot_rebuild < this.snapshot_interval_ms)
+            return;
+        this.rebuild_snapshots();
     }
 
     get_list_json() {
@@ -337,17 +374,8 @@ class BotManager {
 
     stop_failed_bot(bot, context, error) {
         this.log_exception(`${context} for ${bot ? bot.name : 'unknown bot'}`, error);
-        if (!bot)
-            return;
-
-        try {
-            bot.shouldRun = false;
-            bot.shouldRestart = false;
-            bot.killGame();
-            bot.killSteam();
-        } catch (stop_error) {
-            this.log_exception(`failed to stop ${bot.name} after exception`, stop_error);
-        }
+        if (bot)
+            bot.update_failed_at = Date.now();
     }
 
     build_ipc_query_args() {
@@ -508,6 +536,9 @@ class BotManager {
             this.wanted_quota = this.bots.length;
         }
 
+        if (this.bots.length < this.quota)
+            this.schedule_quota_creation(10);
+
         if (!this.quota && !this.bots.length) {
             this.rebuild_snapshots();
             if (!this.stopping)
@@ -521,7 +552,15 @@ class BotManager {
         this.granted_starts_this_tick = 0;
         this.refresh_start_lane();
 
-        for (let i = this.bots.length - 1; i >= 0; i--) {
+        const update_start = Date.now();
+        const total_bots = this.bots.length;
+        let processed_bots = 0;
+        let completed_cycle = true;
+        if (this.update_cursor >= total_bots)
+            this.update_cursor = 0;
+
+        for (let offset = 0; offset < total_bots; offset++) {
+            const i = (this.update_cursor + offset) % total_bots;
             const b = this.bots[i];
             if (!b)
                 continue;
@@ -544,46 +583,72 @@ class BotManager {
                 }
             }
             try {
-                if (this.recover_existing_until && Date.now() < this.recover_existing_until && !b.procFirejailSteam && !b.procFirejailGame) {
-                    if (!this.can_bot_adopt_existing(b))
-                        continue;
-                    b.adopt_runtime_processes(process_table, children_by_parent);
-                    if (!b.procFirejailSteam && !b.procFirejailGame)
-                        continue;
-                }
-
                 b.update(process_table, children_by_parent);
             } catch (error) {
                 this.stop_failed_bot(b, 'bot update failed', error);
             }
+            processed_bots++;
+            if (processed_bots >= this.update_batch_limit || Date.now() - update_start >= this.update_budget_ms) {
+                this.update_cursor = (i + 1) % total_bots;
+                completed_cycle = this.update_cursor === 0;
+                break;
+            }
         }
 
-        this.rebuild_snapshots();
-        try {
-            this.ban_tracker.update();
-        } catch (error) {
-            this.log_exception('ban tracker update failed', error);
+        if (completed_cycle)
+            this.update_cursor = 0;
+
+        this.snapshot_dirty = true;
+        this.maybe_rebuild_snapshots(completed_cycle);
+        if (completed_cycle) {
+            try {
+                this.ban_tracker.update();
+            } catch (error) {
+                this.log_exception('ban tracker update failed', error);
+            }
         }
 
         if (!this.stopping || self.bots.length)
-            self.schedule_update(this.update_interval_ms());
+            self.schedule_update(completed_cycle ? this.update_interval_ms() : this.update_slice_yield_ms);
     }
 
     enforceQuota() {
-        while (this.bots.length < this.quota) {
-            try {
-                const bot = new Bot.bot(this.next_bot_id_for_fill());
-                bot.manager = this;
-                this.bots.push(bot);
-            } catch (error) {
-                this.log_exception(`failed to create bot b${this.bots.length}`, error);
-                this.quota = this.bots.length;
-                this.wanted_quota = this.bots.length;
-                return false;
-            }
-        }
+        if (this.bots.length < this.quota)
+            this.schedule_quota_creation(10);
         this.sort_bots_by_id_desc();
         return true;
+    }
+
+    run_quota_creation() {
+        if (this.stopping || this.quota_creation_in_progress)
+            return;
+
+        this.quota_creation_in_progress = true;
+        let created_count = 0;
+        try {
+            while (this.bots.length < this.quota && created_count < this.quota_creation_batch_limit) {
+                const bot = new Bot.bot(this.next_bot_id_for_fill());
+                bot.manager = this;
+                bot.shouldRun = true;
+                bot.shouldRestart = false;
+                this.bots.push(bot);
+                created_count++;
+            }
+            if (created_count)
+                this.sort_bots_by_id_desc();
+        } catch (error) {
+            this.log_exception(`failed to create bot b${this.bots.length}`, error);
+            this.quota = this.bots.length;
+            this.wanted_quota = this.bots.length;
+        } finally {
+            this.quota_creation_in_progress = false;
+        }
+
+        this.snapshot_dirty = true;
+        this.maybe_rebuild_snapshots(false);
+        if (this.bots.length < this.quota)
+            this.schedule_quota_creation(10);
+        this.request_update(this.update_slice_yield_ms);
     }
 
     next_bot_id_for_fill() {
@@ -625,10 +690,11 @@ class BotManager {
 
         this.wanted_quota = quota;
         this.quota = quota;
-        this.recover_existing_until = Date.now() + 5000;
+        this.recover_existing_until = 0;
         this.enforceQuota();
-        this.rebuild_snapshots();
-        this.schedule_update(0);
+        this.snapshot_dirty = true;
+        this.maybe_rebuild_snapshots(true);
+        this.request_update(this.update_slice_yield_ms);
         this.schedule_ipc_query(0);
         return true;
     }
@@ -639,7 +705,6 @@ class BotManager {
     }
 
     stop() {
-        this.setQuota(0);
         this.stopping = true;
     }
 }

@@ -14,7 +14,8 @@ const STATE = [
 	'STOPPING',
 	'NO ACCOUNT',
 	'INVALID PASSWORD E5',
-	'ACCOUNT DISABLED E43'
+	'ACCOUNT DISABLED E43',
+	'PENDING'
 ];
 
 const classes = [
@@ -493,7 +494,8 @@ function updateUserData(bot, data) {
 	updateIPCData(row, data.ipcID, data.ipc, data.state, data.ipc_observed_at);
 }
 
-function addClientRow(botid) {
+function addClientRow(botid, data) {
+	data = data || {};
 	$("#clients tr").filter(function() {
 		return $(this).attr('data-id') === String(botid);
 	}).remove();
@@ -503,10 +505,10 @@ function addClientRow(botid) {
     actions.append($('<input>').attr('type', 'button').attr('value', 'Command').on('click', commandButtonCallback));
     actions.append($('<input>').attr('type', 'button').attr('value', 'Restart').on('click', restartButtonCallback));
     actions.append($('<input>').attr('type', 'button').attr('value', 'Terminate').on('click', terminateButtonCallback));
-    row.append(actions);
+	row.append(actions);
 	row.append($('<td></td>').attr('class', 'client-restarts').text('N/A'));
 	row.append($('<td></td>').attr('class', 'client-bot-name').text(botid));
-	row.append($('<td></td>').attr('class', 'client-state').text('UNDEFINED'));
+	row.append($('<td></td>').attr('class', 'client-state').text(STATE[data.state] || 'PENDING'));
 	row.append($('<td></td>').attr('class', 'client-steam').text('N/A'));
 	row.append($('<td></td>').attr('class', 'client-ban-tracker active').text('N/A'));
     row.append($('<td></td>').attr('class', 'client-uptime-total active').text('N/A'));
@@ -573,9 +575,15 @@ function refreshComplete() {
 		console.log(data.bots ? Object.keys(data.bots).length + ' bots' : data);
 		clear_bot_rows();
 		$("#clients tr").slice(1).remove();
-		for (var i in data.bots) {
+		var bot_names = Object.keys(data.bots).sort(function(left, right) {
+			var left_id = Number(String(left).replace(/^b/, ''));
+			var right_id = Number(String(right).replace(/^b/, ''));
+			return right_id - left_id;
+		});
+		for (var index = 0; index < bot_names.length; index++) {
+			var i = bot_names[index];
 			count++;
-			addClientRow(i)
+			addClientRow(i, data.bots[i])
 		}
 		last_count = count;
 	})

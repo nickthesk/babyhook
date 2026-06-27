@@ -25,10 +25,12 @@ function log_process_error(kind, error) {
 
 process.on('uncaughtException', (error) => {
     log_process_error('uncaught exception', error);
+    setTimeout(() => process.exit(1), 100).unref();
 });
 
 process.on('unhandledRejection', (reason) => {
     log_process_error('unhandled rejection', reason);
+    setTimeout(() => process.exit(1), 100).unref();
 });
 
 const npid = require('npid');
@@ -93,6 +95,10 @@ app.post('/api/direct/:command', function (req, res) {
 var server = app.listen(PORT, function () {
     console.log("Listening on port", PORT);
 });
+server.on('error', function (error) {
+    log_process_error('server listen error', error);
+    process.exit(1);
+});
 stoppable(server, 0);
 
 
@@ -119,7 +125,14 @@ cleanup_source_engine_locks();
 
 process.on("SIGINT", function () {
     server.stop();
-    forever.stop();
     cc.stop();
     clearInterval(sauce_lock_cleanup_timer);
+    setTimeout(() => process.exit(0), 500).unref();
+});
+
+process.on("SIGTERM", function () {
+    server.stop();
+    cc.stop();
+    clearInterval(sauce_lock_cleanup_timer);
+    setTimeout(() => process.exit(0), 500).unref();
 });
