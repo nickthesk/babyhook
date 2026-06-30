@@ -529,7 +529,8 @@ struct Misc {
       jitter,
       spin,
       random,
-      sideways
+      sideways,
+      omega
     };
 
     bool bypasspure = true;
