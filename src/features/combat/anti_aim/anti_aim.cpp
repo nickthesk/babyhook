@@ -223,6 +223,14 @@ void store_attack_button_state(user_cmd* cmd)
     return deterministic_float(static_cast<std::uint32_t>(command_number) ^ (fake ? 0x5bd1e995U : 0x27d4eb2fU), -180.0f, 180.0f) + value;
   case yaw_mode::sideways:
     return (((command_number & 1) != 0) ? 90.0f : -90.0f) + value;
+   case yaw_mode::omega: {
+    const std::uint32_t seed = static_cast<std::uint32_t>(command_number) ^ (fake ? 0x7C3F1A9BU : 0x1A9B7C3FU);
+    if (!fake) {
+      return deterministic_float(seed, -30.0f, 30.0f) + value;
+    } else {
+      return -180.0f + deterministic_float(seed, -40.0f, 40.0f) + value;
+    }
+  }
   case yaw_mode::off:
   default:
     return value;
