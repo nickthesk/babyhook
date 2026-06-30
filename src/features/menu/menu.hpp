@@ -2650,16 +2650,17 @@ static void draw_misc_content() {
       "Target"
     };
     static const char* anti_aim_yaw_items[] = {
-      "Off",
-      "Forward",
-      "Left",
-      "Right",
-      "Backwards",
-      "Jitter",
-      "Spin",
-      "Random",
-      "Sideways"
-    };
+    "Off",
+    "Forward",
+    "Left",
+    "Right",
+    "Backwards",
+    "Jitter",
+    "Spin",
+    "Random",
+    "Sideways",
+    "Omega"
+     };
 
     cat_menu::flow_panel("Exploits", 0, 332.0f, [&]() {
       cat_menu::checkbox("Bypass sv_pure", &config.misc.exploits.bypasspure);
